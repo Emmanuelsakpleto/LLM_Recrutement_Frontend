@@ -1,73 +1,69 @@
-# Welcome to your Lovable project
+# TechNova RH
 
-## Project info
+**TechNova RH** est une plateforme complète de gestion de recrutement, combinant un frontend moderne React/TypeScript et un backend Python/Flask robuste.
 
-**URL**: https://lovable.dev/projects/d3fd61d5-cea8-457b-8ae1-11f738d06873
+## Fonctionnalités principales
 
-## How can I edit this code?
+- Authentification sécurisée (JWT)
+- Gestion des briefs de poste et contextes d’entreprise
+- Analyse automatisée de CV et scoring prédictif
+- Génération de questions d’entretien personnalisées
+- Visualisation des candidats (tableaux, graphiques radar)
+- Génération de rapports PDF
+- Interface utilisateur responsive et moderne (Tailwind CSS)
+- API RESTful documentée
 
-There are several ways of editing your application.
+## Stack technique
 
-**Use Lovable**
+### Frontend
+- React 18 + TypeScript
+- Vite
+- Tailwind CSS
+- Context API, hooks personnalisés
+- Appels API centralisés
+- Tests, linting et build automatisés
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/d3fd61d5-cea8-457b-8ae1-11f738d06873) and start prompting.
+### Backend
+- Python 3, Flask, SQLAlchemy
+- JWT pour la sécurité
+- Alembic pour les migrations
+- ReportLab pour la génération de PDF
+- Logging avancé
+- Architecture modulaire
 
-Changes made via Lovable will be committed automatically to this repo.
+## Lancer le projet
 
-**Use your preferred IDE**
+### Prérequis
+- Node.js (>= 16)
+- Python (>= 3.9)
+- PostgreSQL
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Installation
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
+#### Frontend
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+cd TechNova_FT
+npm install
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+#### Backend
+```sh
+cd TechNovaBackend
+pip install -r requirements.txt
+flask run
+```
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Structure des dossiers
 
-**Use GitHub Codespaces**
+- `TechNova_FT/` : Frontend React
+- `TechNovaBackend/` : Backend Flask
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Contribution
 
-## What technologies are used for this project?
+Les PR sont les bienvenues ! Merci de respecter la structure et les conventions du projet.
 
-This project is built with:
+---
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/d3fd61d5-cea8-457b-8ae1-11f738d06873) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+**Contact** : [Votre nom ou équipe]  
+**Licence** : MIT
