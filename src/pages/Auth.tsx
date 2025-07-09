@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import Card from '../components/Card';
 import Button from '../components/Button';
@@ -40,63 +39,149 @@ const Auth: React.FC<AuthProps> = ({ onLogin }) => {
     }));
   };
 
-  const handleSubmit = async (e) => {
-  e.preventDefault();
-  console.log('Soumission', { isLogin, formData });
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
 
-  if (!formData.email || !formData.password) {
-    setToast({ message: 'Tous les champs sont requis', type: 'error' });
-    return;
-  }
-
-  if (!isLogin) {
-    if (!formData.name) {
-      setToast({ message: 'Le nom est requis pour l\'inscription', type: 'error' });
+    // Validation des champs
+    if (!formData.email || !formData.password) {
+      setToast({ message: 'Tous les champs sont requis', type: 'error' });
       return;
     }
-    if (formData.password !== formData.confirmPassword) {
-      setToast({ message: 'Les mots de passe ne correspondent pas', type: 'error' });
-      return;
-    }
-  }
 
-  setIsLoading(true);
-  try {
-    let response;
-    if (isLogin) {
-      response = await authService.login({
-        email: formData.email,
-        password: formData.password,
-      });
-    } else {
-      response = await authService.register({
-        username: formData.name,
-        email: formData.email,
-        password: formData.password,
-      });
-    }
-
-    console.log('Réponse API:', response);
-    if (response.error) {
-      setToast({ message: response.error, type: 'error' });
-    } else if (response.message) {
-      setToast({ message: response.message, type: 'success' });
-      if (isLogin) {
-        onLogin(response.user || { id: 1, email: formData.email, username: formData.name || '' }); // Ajuste selon la réponse
-      } else {
-        setTimeout(() => {
-          setIsLogin(true);
-          setFormData(prev => ({ ...prev, name: '', confirmPassword: '' }));
-        }, 1500);
+    if (!isLogin) {
+      if (!formData.name) {
+        setToast({ message: 'Le nom est requis pour l\'inscription', type: 'error' });
+        return;
+      }
+      if (formData.password !== formData.confirmPassword) {
+        setToast({ message: 'Les mots de passe ne correspondent pas', type: 'error' });
+        return;
       }
     }
-  } catch (error) {
-    console.error('Erreur détaillée:', error);
-    setToast({ message: 'Erreur serveur ou réseau : ' + (error.message || 'Inconnu'), type: 'error' });
-  } finally {
-    setIsLoading(false);
-  }
-};
+
+    setIsLoading(true);
+    try {
+      if (isLogin) {
+        // Connexion
+        console.log('🔐 Tentative de connexion avec:', { email: formData.email });
+        
+        const response = await authService.login({
+          email: formData.email,
+          password: formData.password,
+        });
+        
+        console.log('📥 Réponse complète du serveur:', response);
+        console.log('📄 Type de réponse:', typeof response);
+        console.log('🔍 Clés de la réponse:', Object.keys(response));
+        
+        if (response.error) {
+          console.log('❌ Erreur détectée:', response.error);
+          setToast({ message: response.error, type: 'error' });
+        } else {
+          // Essayer différentes structures de réponse
+          let user: User | null = null;
+          let token: string | null = null;
+          
+          // Structure 1: { data: { user, token } }
+          if (response.data && response.data.user) {
+            console.log('✅ Structure détectée: data.user');
+            user = response.data.user;
+            token = response.data.token;
+          }
+          // Structure 2: { user, token } directement
+          else if (response.user) {
+            console.log('✅ Structure détectée: user direct');
+            user = response.user;
+            token = response.token;
+          }
+          // Structure 3: response est directement { user, token }
+          else if (response.id || response.email) {
+            console.log('✅ Structure détectée: réponse est l\'utilisateur');
+            user = response as User;
+          }
+          // Structure 4: Tentative de reconstruction
+          else {
+            console.log('🔧 Tentative de reconstruction de l\'utilisateur');
+            console.log('📋 Données disponibles:', response);
+            
+            // Essayer de créer un utilisateur à partir des données disponibles
+            if (response.email || formData.email) {
+              user = {
+                id: response.id || Date.now(),
+                email: response.email || formData.email,
+                username: response.username || response.name || formData.email.split('@')[0]
+              };
+              console.log('👤 Utilisateur reconstruit:', user);
+            }
+          }
+          
+          if (user) {
+            console.log('🎉 Connexion réussie avec utilisateur:', user);
+            if (token) {
+              console.log('🔑 Token reçu:', token.substring(0, 20) + '...');
+            }
+            
+            setToast({ message: 'Connexion réussie !', type: 'success' });
+            setTimeout(() => {
+              onLogin(user!);
+            }, 500);
+          } else {
+            console.log('❌ Impossible de déterminer l\'utilisateur');
+            console.log('📋 Données reçues:', JSON.stringify(response, null, 2));
+            setToast({ message: 'Erreur: impossible de récupérer les informations utilisateur', type: 'error' });
+          }
+        }
+      } else {
+        // Inscription
+        console.log('📝 Tentative d\'inscription avec:', { 
+          username: formData.name, 
+          email: formData.email 
+        });
+        
+        const response = await authService.register({
+          username: formData.name,
+          email: formData.email,
+          password: formData.password,
+        });
+        
+        console.log('📥 Réponse inscription:', response);
+        
+        if (response.error) {
+          console.log('❌ Erreur inscription:', response.error);
+          setToast({ message: response.error, type: 'error' });
+        } else {
+          console.log('✅ Inscription réussie');
+          const message = response.message || response.data?.message || 'Inscription réussie !';
+          setToast({ message, type: 'success' });
+          
+          setTimeout(() => {
+            setIsLogin(true);
+            setFormData({ 
+              email: formData.email,
+              password: '', 
+              name: '', 
+              confirmPassword: '' 
+            });
+            setToast(null);
+          }, 1500);
+        }
+      }
+    } catch (error) {
+      console.error('💥 Erreur catch:', error);
+      console.error('📋 Détails de l\'erreur:', {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      });
+      
+      setToast({ 
+        message: `Erreur de connexion: ${error.message || 'Erreur inconnue'}`, 
+        type: 'error' 
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   const toggleMode = () => {
     setIsLogin(!isLogin);

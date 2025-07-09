@@ -1,4 +1,3 @@
-
 import React from 'react';
 import Card from './Card';
 
@@ -22,6 +21,38 @@ const CandidateCard = ({ candidate, onClick, isSelected = false }) => {
     return 'text-red-600';
   };
 
+  // Sécurisation de l'accès aux compétences, expérience et culture
+  const competences = candidate.cv_analysis?.["Compétences"] || [];
+  const experience = candidate.cv_analysis?.["Expérience"] || [];
+  const culture = candidate.cv_analysis?.["Culture"] || [];
+
+  // Mapping robuste des scores
+  const predictiveScore = typeof candidate.predictive_score === 'number' && !isNaN(candidate.predictive_score)
+    ? Number(candidate.predictive_score.toFixed(1))
+    : null;
+  const skillsScore = candidate.score_details?.skills_score !== undefined && candidate.score_details?.skills_score !== null
+    ? Number(candidate.score_details.skills_score.toFixed(1))
+    : 0;
+  const experienceScore = candidate.score_details?.experience_score !== undefined && candidate.score_details?.experience_score !== null
+    ? Number(candidate.score_details.experience_score.toFixed(1))
+    : 0;
+  const educationScore = candidate.score_details?.education_score !== undefined && candidate.score_details?.education_score !== null
+    ? Number(candidate.score_details.education_score.toFixed(1))
+    : 0;
+  const finalScore = candidate.score_details?.final_score !== undefined && candidate.score_details?.final_score !== null
+    ? Number(candidate.score_details.final_score.toFixed(1))
+    : 0;
+
+  // Affichage dynamique du score principal
+  const displayScore = predictiveScore !== null && predictiveScore > 0 ? predictiveScore : finalScore;
+  const scoreLabel = predictiveScore !== null && predictiveScore > 0 ? 'Score prédictif' : 'Score global';
+
+  // Radar arrondi à 1 décimale
+  const radarData = candidate.radar_data || {};
+  const radarCompetences = radarData.Compétences !== undefined ? Number(Number(radarData.Compétences).toFixed(1)) : 0;
+  const radarExperience = radarData.Expérience !== undefined ? Number(Number(radarData.Expérience).toFixed(1)) : 0;
+  const radarCulture = radarData.Culture !== undefined ? Number(Number(radarData.Culture).toFixed(1)) : 0;
+
   return (
     <Card 
       hover={true} 
@@ -38,37 +69,27 @@ const CandidateCard = ({ candidate, onClick, isSelected = false }) => {
           </div>
         </div>
         <div className="text-right">
-          <div className={`text-2xl font-bold ${getScoreColor(candidate.predictive_score)}`}>
-            {candidate.predictive_score}%
+          <div className={`text-2xl font-bold ${getScoreColor(displayScore)}`}>
+            {displayScore}%
           </div>
-          <div className="text-xs text-gray-500">Score prédictif</div>
+          <div className="text-xs text-gray-500">{scoreLabel}</div>
         </div>
       </div>
       
       <div className="space-y-2">
         <div className="flex justify-between text-sm">
           <span className="text-gray-600">Compétences:</span>
-          <span className="font-medium">{candidate.radar_data.Compétences}%</span>
+          <span className="font-medium">{skillsScore}%</span>
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-gray-600">Expérience:</span>
-          <span className="font-medium">{candidate.radar_data.Expérience}%</span>
+          <span className="font-medium">{experienceScore}%</span>
         </div>
         <div className="flex justify-between text-sm">
-          <span className="text-gray-600">Culture:</span>
-          <span className="font-medium">{candidate.radar_data.Culture}%</span>
+          <span className="text-gray-600">Formation:</span>
+          <span className="font-medium">{educationScore}%</span>
         </div>
       </div>
-
-      {candidate.risks && candidate.risks.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-gray-100">
-          <div className="text-xs text-gray-500 mb-1">Risques identifiés:</div>
-          <div className="text-xs text-red-600">
-            {candidate.risks.slice(0, 2).join(', ')}
-            {candidate.risks.length > 2 && '...'}
-          </div>
-        </div>
-      )}
     </Card>
   );
 };

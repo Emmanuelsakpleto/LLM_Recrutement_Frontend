@@ -1,11 +1,13 @@
-
 import React, { useState, useEffect } from 'react';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Toast from '../components/Toast';
 import RadarChart from '../components/RadarChart';
 import BriefSelector from '../components/BriefSelector';
-import { evaluationService, contextService, JobBrief, Candidate, InterviewQuestion } from '../services/api';
+import ContextSelector, { CompanyContextType } from '../components/ContextSelector';
+import { candidateService, contextService, JobBrief, Candidate, companyContextService } from '../services/api';
+import { useCompanyContext } from '../context/CompanyContext';
+import { useNavigate } from 'react-router-dom';
 
 interface EvaluationProps {
   activeBrief: JobBrief | null;
@@ -40,28 +42,16 @@ const Evaluation: React.FC<EvaluationProps> = ({
   briefs,
   setBriefs 
 }) => {
+  const { companyContext } = useCompanyContext();
+  const navigate = useNavigate();
+
   const [appreciations, setAppreciations] = useState<Record<number, number>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [evaluationResult, setEvaluationResult] = useState<EvaluationResult | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
-  const [questions, setQuestions] = useState<InterviewQuestion[]>([]);
+  const [questions, setQuestions] = useState<any[]>([]); // Use any[] for now, type might need adjustment
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
-
-  // Charger les questions d'entretien
-  useEffect(() => {
-    const loadQuestions = async () => {
-      try {
-        const response = await contextService.getQuestions();
-        if (response.data) {
-          setQuestions(response.data);
-        }
-      } catch (error) {
-        console.error('Erreur lors du chargement des questions:', error);
-      }
-    };
-
-    loadQuestions();
-  }, []);
+  const [contexts, setContexts] = useState<CompanyContextType[]>([]);
 
   // Sélectionner le premier candidat par défaut
   useEffect(() => {
@@ -69,6 +59,39 @@ const Evaluation: React.FC<EvaluationProps> = ({
       setSelectedCandidate(candidates[0]);
     }
   }, [candidates, selectedCandidate]);
+
+  // Met à jour les questions à chaque changement de candidat sélectionné
+  useEffect(() => {
+    if (selectedCandidate && selectedCandidate.interview_questions) {
+      let q = selectedCandidate.interview_questions;
+      if (typeof q === 'string') {
+        try {
+          q = JSON.parse(q);
+        } catch (e) {
+          setToast({ message: "Format des questions invalide (JSON)", type: 'error' });
+          setQuestions([]);
+          return;
+        }
+      }
+      if (Array.isArray(q)) {
+        setQuestions(q);
+      } else {
+        setToast({ message: "Format des questions d'entretien non reconnu", type: 'error' });
+        setQuestions([]);
+      }
+    } else {
+      setQuestions([]);
+    }
+  }, [selectedCandidate]);
+
+  // Charger dynamiquement les contextes d'entreprise
+  const fetchContexts = async () => {
+    const res = await companyContextService.getContexts();
+    if (res.data) setContexts(res.data);
+  };
+  useEffect(() => {
+    fetchContexts();
+  }, []);
 
   const appreciationOptions = [
     { value: 1, label: 'Très insatisfait', color: 'text-red-600' },
@@ -86,25 +109,30 @@ const Evaluation: React.FC<EvaluationProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!selectedCandidate) {
       setToast({ message: 'Aucun candidat sélectionné', type: 'error' });
       return;
     }
 
+    if (questions.length === 0) {
+       setToast({ message: "Aucune question d'évaluation disponible.", type: 'error' });
+       return;
+    }
+
     const totalQuestions = questions.length;
     const answeredQuestions = Object.keys(appreciations).length;
-    
+
     if (answeredQuestions < totalQuestions) {
-      setToast({ 
-        message: `Veuillez répondre à toutes les questions (${answeredQuestions}/${totalQuestions})`, 
-        type: 'error' 
+      setToast({
+        message: `Veuillez répondre à toutes les questions (${answeredQuestions}/${totalQuestions})`,
+        type: 'error'
       });
       return;
     }
 
     setIsSubmitting(true);
-    
+
     try {
       // Préparer les données d'évaluation
       const evaluationData = {
@@ -116,36 +144,38 @@ const Evaluation: React.FC<EvaluationProps> = ({
         }))
       };
 
-      const response = await evaluationService.submitEvaluation(selectedCandidate.id, evaluationData);
-      
-      if (response.data) {
-        // Calculer les données radar basées sur les appréciations
-        const radarData = {
-          'Compétences': calculateCategoryScore('Job Description') * 25,
-          'Expérience': Math.random() * 30 + 70,
-          'Formation': Math.random() * 20 + 80,
-          'Culture': calculateCategoryScore('Company Culture') * 25,
-          'Entretien': Object.values(appreciations).reduce((a, b) => a + b, 0) / Object.values(appreciations).length * 25
-        };
-        
+      const response = await candidateService.submitEvaluation(selectedCandidate.id, evaluationData);
+      if (response.data && response.data.analysis) {
         setEvaluationResult({
           ...response.data.analysis,
-          radar_data: radarData,
           total_questions: totalQuestions,
           answered_questions: answeredQuestions,
           average_score: Object.values(appreciations).reduce((a, b) => a + b, 0) / Object.values(appreciations).length
         });
-        
         setToast({ message: 'Évaluation soumise avec succès !', type: 'success' });
-        
-        // Mettre à jour le candidat dans la liste
         setCandidates(prev => prev.map(c => 
           c.id === selectedCandidate.id 
-            ? { ...c, status: 'Évalué', predictive_score: response.data.analysis.predictive_score }
+            ? {
+                ...c,
+                ...response.data.analysis, // merge toutes les propriétés du backend (radar_data, risks, recommendations, etc.)
+                status: 'Évalué',
+                predictive_score: response.data.analysis.predictive_score,
+                radar_data: response.data.analysis.radar_data || c.radar_data,
+                risks: response.data.analysis.risks || c.risks,
+                recommendations: response.data.analysis.recommendations || c.recommendations,
+                appreciations: response.data.analysis.appreciations || c.appreciations,
+                interview_questions: response.data.analysis.interview_questions || c.interview_questions
+              }
             : c
         ));
+        // Rafraîchir la liste complète des candidats pour garantir la synchro des questions
+        candidateService.getCandidates().then(res => {
+          if (res.data) setCandidates(res.data);
+        });
+      } else if (response.error) {
+        setToast({ message: response.error, type: 'error' });
       } else {
-        setToast({ message: response.error || 'Erreur lors de la soumission', type: 'error' });
+        setToast({ message: 'Erreur lors de la soumission ou réponse inattendue du backend.', type: 'error' });
       }
     } catch (error) {
       console.error('Erreur lors de la soumission:', error);
@@ -155,17 +185,44 @@ const Evaluation: React.FC<EvaluationProps> = ({
     }
   };
 
-  const calculateCategoryScore = (category: string): number => {
-    const categoryQuestions = questions
-      .map((q, index) => ({ ...q, index }))
-      .filter(q => q.category === category);
-    
-    const categoryScores = categoryQuestions
-      .filter(q => appreciations[q.index])
-      .map(q => appreciations[q.index]);
-    
-    return categoryScores.length > 0 ? 
-      categoryScores.reduce((a, b) => a + b, 0) / categoryScores.length : 0;
+  // Export PDF du rapport d'évaluation
+  const handleExportPDF = async () => {
+    if (!evaluationResult || !selectedCandidate) return;
+    const { jsPDF } = await import('jspdf');
+    const doc = new jsPDF();
+    doc.setFont('helvetica');
+    doc.setFontSize(16);
+    doc.text(`Rapport d'Évaluation - ${selectedCandidate.name}`, 10, 15);
+    doc.setFontSize(12);
+    doc.text(`Score prédictif : ${evaluationResult.predictive_score}%`, 10, 30);
+    doc.text(`Note moyenne : ${evaluationResult.average_score.toFixed(1)}`, 10, 38);
+    doc.text(`Questions évaluées : ${evaluationResult.answered_questions}/${evaluationResult.total_questions}`, 10, 46);
+    doc.text('Points forts :', 10, 58);
+    let y = 66;
+    evaluationResult.strengths.forEach((s: string) => {
+      doc.text(`- ${s}`, 12, y);
+      y += 8;
+    });
+    y += 4;
+    doc.text('Points d’amélioration :', 10, y);
+    y += 8;
+    evaluationResult.weaknesses.forEach((w: string) => {
+      doc.text(`- ${w}`, 12, y);
+      y += 8;
+    });
+    y += 4;
+    doc.text('Recommandations :', 10, y);
+    y += 8;
+    evaluationResult.recommendations.forEach((r: string) => {
+      doc.text(`- ${r}`, 12, y);
+      y += 8;
+    });
+    // Signature en bas de page (bleu, icône cravate, TheRecruit)
+    doc.setFontSize(10);
+    doc.setTextColor(59, 130, 246); // Bleu
+    doc.text('👔 TheRecruit', 10, 285);
+    doc.setTextColor(0, 0, 0);
+    doc.save(`Rapport_Evaluation_${selectedCandidate.name}.pdf`);
   };
 
   const getAppreciationLabel = (value: number): string => {
@@ -175,7 +232,7 @@ const Evaluation: React.FC<EvaluationProps> = ({
 
   const getProgressPercentage = (): number => {
     const answered = Object.keys(appreciations).length;
-    const total = questions.length;
+    const total = questions.length; // Use questions state
     return total > 0 ? (answered / total) * 100 : 0;
   };
 
@@ -200,6 +257,23 @@ const Evaluation: React.FC<EvaluationProps> = ({
   return (
     <div className="min-h-screen bg-gray-50 p-4 lg:p-8">
       <div className="max-w-6xl mx-auto">
+        {/* Sélecteur de contexte d'entreprise en tout premier */}
+        <ContextSelector contexts={contexts} onContextsChange={fetchContexts} />
+        {/* Affichage du contexte actif juste après */}
+        {companyContext && (
+          <div className="mb-4 p-3 bg-blue-50 text-blue-900 rounded border border-blue-200 text-sm">
+            <strong>Contexte actif :</strong> {companyContext.nom_entreprise} | {companyContext.domaine} <br />
+            <span className="text-xs text-blue-700">Valeurs : {companyContext.values?.join(', ')}</span><br />
+            <span className="text-xs text-blue-700">Culture : {companyContext.culture}</span>
+          </div>
+        )}
+        {/* Avertissement si aucun contexte sélectionné */}
+        {!companyContext && (
+          <div className="mb-4 p-3 bg-yellow-100 text-yellow-800 rounded border border-yellow-300 text-sm">
+            ⚠️ Aucun contexte d'entreprise sélectionné. Certaines fonctionnalités peuvent être limitées.
+          </div>
+        )}
+        {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Évaluation de l'Entretien</h1>
           <p className="text-gray-600">Évaluez les réponses du candidat pour générer un rapport prédictif</p>
@@ -212,7 +286,7 @@ const Evaluation: React.FC<EvaluationProps> = ({
         />
 
         {/* Sélection du candidat */}
-        {candidates.length > 0 && (
+        {candidates.filter(c => activeBrief && c.brief_id === activeBrief.id).length > 0 && (
           <Card className="p-6 mb-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-3">
@@ -230,7 +304,7 @@ const Evaluation: React.FC<EvaluationProps> = ({
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               >
                 <option value="">Sélectionner un candidat...</option>
-                {candidates.map((candidate) => (
+                {candidates.filter(c => activeBrief && c.brief_id === activeBrief.id).map((candidate) => (
                   <option key={candidate.id} value={candidate.id}>
                     {candidate.name} (ID: {candidate.id})
                   </option>
@@ -312,11 +386,9 @@ const Evaluation: React.FC<EvaluationProps> = ({
                                   onChange={(e) => handleAppreciationChange(index, e.target.value)}
                                   className="sr-only"
                                 />
-                                <div className={`w-4 h-4 rounded-full border-2 ${
-                                  appreciations[index] === option.value
-                                    ? 'border-blue-500 bg-blue-500'
-                                    : 'border-gray-300'
-                                }`}>
+                                <div className={
+                                  `w-4 h-4 rounded-full border-2 ${appreciations[index] === option.value ? 'border-blue-500 bg-blue-500' : 'border-gray-300'}`
+                                }>
                                   {appreciations[index] === option.value && (
                                     <div className="w-2 h-2 bg-white rounded-full m-0.5"></div>
                                   )}
@@ -369,7 +441,9 @@ const Evaluation: React.FC<EvaluationProps> = ({
                   <Button variant="secondary" onClick={() => setEvaluationResult(null)}>
                     Modifier l'évaluation
                   </Button>
-                  <Button variant="primary">Télécharger PDF</Button>
+                  <Button variant="primary" onClick={handleExportPDF}>
+                    Télécharger PDF
+                  </Button>
                 </div>
               </div>
               

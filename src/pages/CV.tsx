@@ -1,16 +1,27 @@
-
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import Toast from '../components/Toast';
-import { cvService, candidateService } from '../services/api';
+import CVBarChart from '../components/CVBarChart';
+import CandidateDropdown from '../components/CandidateDropdown';
+import BriefSelector from '../components/BriefSelector';
+import ContextSelector, { CompanyContextType } from '../components/ContextSelector';
+import { cvService, candidateService, companyContextService } from '../services/api';
 import { JobBrief, Candidate } from '../services/api';
+import { useCompanyContext } from '../context/CompanyContext';
 
 interface CVProps {
   activeBrief: JobBrief | null;
   onBriefChange: (brief: JobBrief | null) => void;
+  briefs: JobBrief[];
+  setBriefs: (briefs: JobBrief[]) => void;
   candidates: Candidate[];
   setCandidates: React.Dispatch<React.SetStateAction<Candidate[]>>;
+}
+
+// Filtrage des candidats par brief actif (utilitaire)
+function filterCandidatesByBrief(candidates: Candidate[], brief: JobBrief | null) {
+  return brief ? candidates.filter(c => c.brief_id === brief.id) : candidates;
 }
 
 interface AnalysisResult {
@@ -23,6 +34,7 @@ interface AnalysisResult {
     experience: number;
     education: number;
   };
+  report_summary?: string;
 }
 
 interface ToastState {
@@ -30,11 +42,15 @@ interface ToastState {
   type: 'success' | 'error';
 }
 
-const CV: React.FC<CVProps> = ({ activeBrief, onBriefChange, candidates, setCandidates }) => {
+const CV: React.FC<CVProps> = ({ activeBrief, onBriefChange, briefs, setBriefs, candidates, setCandidates }) => {
+  const { companyContext } = useCompanyContext();
+  const [contexts, setContexts] = useState<CompanyContextType[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [toast, setToast] = useState<ToastState | null>(null);
+  const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -63,6 +79,10 @@ const CV: React.FC<CVProps> = ({ activeBrief, onBriefChange, candidates, setCand
   };
 
   const handleFile = async (file: File) => {
+    if (!activeBrief) {
+      setToast({ message: 'Veuillez d’abord sélectionner un brief de poste avant d’analyser un CV.', type: 'error' });
+      return;
+    }
     // Validate file type
     const allowedTypes = ['application/pdf', 'text/plain'];
     if (!allowedTypes.includes(file.type)) {
@@ -80,29 +100,32 @@ const CV: React.FC<CVProps> = ({ activeBrief, onBriefChange, candidates, setCand
     setAnalysisResult(null);
 
     try {
-      const response = await cvService.uploadCV(file);
-      if (response.data) {
-        // Transformer les données pour correspondre au format attendu par l'UI
-        const transformedResult: AnalysisResult = {
-          name: file.name.replace(/\.[^/.]+$/, ""), // Nom du fichier sans extension
-          experience: response.data.cv_analysis.experience?.join(', ') || 'Non renseigné',
-          education: response.data.cv_analysis.education?.join(', ') || 'Non renseigné',
-          skills: response.data.cv_analysis.competences || [],
+      // Préparer l’envoi du fichier + brief_id
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('brief_id', String(activeBrief.id)); // <-- Assure-toi que activeBrief est bien défini
+      // Upload et récupération de l'analyse IA
+      const response = await cvService.uploadCV(formData);
+      if (response.candidate) {
+        // Affichage immédiat de l’analyse IA et du score
+        setAnalysisResult({
+          name: response.candidate.name,
+          experience: response.candidate.cv_analysis?.["Expériences professionnelles"]?.map((e: any) => e.poste || '').join(', ') || 'Non renseigné',
+          education: response.candidate.cv_analysis?.["Formations"]?.map((f: any) => f.diplôme || '').join(', ') || 'Non renseigné',
+          skills: response.candidate.cv_analysis?.["Compétences"] || [],
           scores: {
-            skills: response.data.score?.skills || Math.floor(Math.random() * 40 + 60),
-            experience: response.data.score?.experience || Math.floor(Math.random() * 40 + 60),
-            education: response.data.score?.education || Math.floor(Math.random() * 40 + 60)
-          }
-        };
-
-        setAnalysisResult(transformedResult);
-        setToast({ message: 'CV analysé avec succès !', type: 'success' });
-
-        // Recharger la liste des candidats
+            skills: response.candidate.score_details?.skills_score !== undefined ? Number(response.candidate.score_details.skills_score.toFixed(1)) : 0,
+            experience: response.candidate.score_details?.experience_score !== undefined ? Number(response.candidate.score_details.experience_score.toFixed(1)) : 0,
+            education: response.candidate.score_details?.education_score !== undefined ? Number(response.candidate.score_details.education_score.toFixed(1)) : 0
+          },
+          report_summary: response.candidate.report_summary || ''
+        });
+        // Rafraîchir la liste des candidats si besoin
         const candidatesResponse = await candidateService.getCandidates();
         if (candidatesResponse.data) {
           setCandidates(candidatesResponse.data);
         }
+        setToast({ message: 'CV analysé avec succès !', type: 'success' });
       } else {
         setToast({ message: response.error || 'Erreur lors de l\'analyse du CV', type: 'error' });
       }
@@ -126,17 +149,131 @@ const CV: React.FC<CVProps> = ({ activeBrief, onBriefChange, candidates, setCand
     return 'À améliorer';
   };
 
+  // Filtrer les candidats selon le brief actif (mémorisé)
+  const filteredCandidates = React.useMemo(() => filterCandidatesByBrief(candidates, activeBrief), [candidates, activeBrief]);
+
+  // Mapping universel des scores pour compatibilité backend
+  const mapScores = (raw: any) => {
+    if (!raw) return { skills: 0, experience: 0, education: 0, global: 0 };
+    return {
+      skills: raw.skills_score ?? raw.skills ?? 0,
+      experience: raw.experience_score ?? raw.experience ?? 0,
+      education: raw.education_score ?? raw.education ?? 0,
+      global: raw.final_score ?? raw.global ?? raw.score ?? 0
+    };
+  };
+
+  // Mettre à jour analysisResult quand un candidat est sélectionné
+  React.useEffect(() => {
+    if (selectedCandidateId) {
+      const candidate = filteredCandidates.find(c => c.id === selectedCandidateId);
+      if (candidate) {
+        // Utiliser score_details si présent, sinon fallback sur l’ancien mapping
+        const rawScores = candidate.score_details || candidate.score || {
+          skills_score: candidate.predictive_score || 0,
+          experience_score: 0,
+          education_score: 0,
+          final_score: candidate.predictive_score || 0
+        };
+        const scores = mapScores(rawScores);
+        setAnalysisResult({
+          name: candidate.name,
+          experience: candidate.cv_analysis?.["Expériences professionnelles"]?.map((e: any) => e.poste || '').join(', ') || 'Non renseigné',
+          education: candidate.cv_analysis?.["Formations"]?.map((f: any) => f.diplôme || '').join(', ') || 'Non renseigné',
+          skills: candidate.cv_analysis?.["Compétences"] || [],
+          scores
+        });
+      }
+    } else {
+      setAnalysisResult(null);
+    }
+  }, [selectedCandidateId, filteredCandidates]);
+
+  // Récupérer le brief actif à chaque upload ou changement
+  React.useEffect(() => {
+    if (activeBrief && activeBrief.id) {
+      // Appel API pour récupérer les infos du brief actif si besoin
+      // Exemple :
+      // jobService.getBriefById(activeBrief.id).then(res => setBriefDetails(res.data));
+      // Ici, tu peux stocker le brief dans un state local si tu veux l'afficher ou l'utiliser
+    }
+  }, [activeBrief]);
+
+  // Lors du changement de brief actif, réinitialiser la sélection de candidat
+  React.useEffect(() => {
+    setSelectedCandidateId(null);
+    setAnalysisResult(null);
+  }, [activeBrief]);
+
+  // Suppression d'un candidat
+  const handleDeleteCandidate = async (id: number) => {
+    if (!window.confirm('Supprimer ce CV ? Cette action est irréversible.')) return;
+    try {
+      const response = await candidateService.deleteCandidate(id);
+      if (response.error) {
+        setToast({ message: response.error, type: 'error' });
+      } else {
+        setToast({ message: 'CV supprimé avec succès', type: 'success' });
+        // Rafraîchir la liste
+        const candidatesResponse = await candidateService.getCandidates();
+        if (candidatesResponse.data) {
+          setCandidates(candidatesResponse.data);
+        }
+        // Désélectionner si le candidat supprimé était sélectionné
+        if (selectedCandidateId === id) setSelectedCandidateId(null);
+      }
+    } catch (error) {
+      setToast({ message: 'Erreur lors de la suppression', type: 'error' });
+    }
+  };
+
+  // Charger dynamiquement les contextes d'entreprise
+  const fetchContexts = async () => {
+    const res = await companyContextService.getContexts();
+    if (res.data) setContexts(res.data);
+  };
+  React.useEffect(() => {
+    fetchContexts();
+  }, []);
+
+
   return (
     <div className="min-h-screen bg-gray-50 p-4 lg:p-8">
       <div className="max-w-4xl mx-auto">
+        {/* Sélecteur de contexte d'entreprise en tout premier */}
+        <ContextSelector contexts={contexts} onContextsChange={fetchContexts} />
+        {/* Affichage du contexte actif juste après */}
+        {companyContext && (
+          <div className="mb-4 p-3 bg-blue-50 text-blue-900 rounded border border-blue-200 text-sm">
+            <strong>Contexte actif :</strong> {companyContext.nom_entreprise} | {companyContext.domaine} <br />
+            <span className="text-xs text-blue-700">Valeurs : {companyContext.values?.join(', ')}</span><br />
+            <span className="text-xs text-blue-700">Culture : {companyContext.culture}</span>
+          </div>
+        )}
+        {/* Avertissement si aucun contexte sélectionné */}
+        {!companyContext && (
+          <div className="mb-4 p-3 bg-yellow-100 text-yellow-800 rounded border border-yellow-300 text-sm">
+            ⚠️ Aucun contexte d'entreprise sélectionné. Certaines fonctionnalités peuvent être limitées.
+          </div>
+        )}
+        {/* Sélecteur de brief actif */}
+        <BriefSelector
+          activeBrief={activeBrief}
+          onBriefChange={onBriefChange}
+          briefs={briefs}
+        />
+        {/* Dropdown de sélection de candidat */}
+        <CandidateDropdown
+          candidates={filteredCandidates}
+          selectedCandidateId={selectedCandidateId}
+          onSelect={setSelectedCandidateId}
+        />
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Analyse de CV</h1>
           <p className="text-gray-600">Téléchargez un CV pour une analyse automatique des compétences et de l'expérience</p>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Upload Section */}
-          <Card className="p-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            {/* Upload Section */}
+            <Card className="p-6">
             <h2 className="text-xl font-semibold text-gray-900 mb-6">Téléchargement du CV</h2>
             
             <div
@@ -177,12 +314,17 @@ const CV: React.FC<CVProps> = ({ activeBrief, onBriefChange, candidates, setCand
                       onChange={handleFileInput}
                       className="hidden"
                       id="cv-upload"
+                      ref={fileInputRef}
                     />
-                    <label htmlFor="cv-upload">
-                      <Button variant="primary" size="lg" className="cursor-pointer">
-                        Sélectionner un fichier
-                      </Button>
-                    </label>
+                    <Button
+                      variant="primary"
+                      size="lg"
+                      className="cursor-pointer"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isAnalyzing}
+                    >
+                      Sélectionner un fichier
+                    </Button>
                   </>
                 )}
               </div>
@@ -203,6 +345,8 @@ const CV: React.FC<CVProps> = ({ activeBrief, onBriefChange, candidates, setCand
           <div className="space-y-6">
             {analysisResult ? (
               <>
+        
+
                 {/* Candidate Info */}
                 <Card className="p-6">
                   <h2 className="text-xl font-semibold text-gray-900 mb-4">Informations Candidat</h2>
@@ -270,14 +414,61 @@ const CV: React.FC<CVProps> = ({ activeBrief, onBriefChange, candidates, setCand
                     ))}
                   </div>
                 </Card>
+ {/* Bar chart des scores */}
+                <CVBarChart
+                  scores={{
+                    skills: Number(analysisResult.scores.skills) || 0,
+                    experience: Number(analysisResult.scores.experience) || 0,
+                    education: Number(analysisResult.scores.education) || 0,
+                    global: Number(
+                      Math.round(
+                        (Number(analysisResult.scores.skills) * 0.5 +
+                         Number(analysisResult.scores.experience) * 0.3 +
+                         Number(analysisResult.scores.education) * 0.2)
+                      )
+                    ) || 0,
+                  }}
+                />
+                {/* Résumé */}
+                {analysisResult?.report_summary && (
+                  <Card className="p-6">
+                    <h2 className="text-xl font-semibold text-gray-900 mb-4">Résumé</h2>
+                    <div className="prose max-w-none">
+                      <pre style={{whiteSpace: 'pre-wrap'}}>{analysisResult.report_summary}</pre>
+                    </div>
+                  </Card>
+                )}
 
                 {/* Actions */}
                 <Card className="p-6">
                   <h2 className="text-xl font-semibold text-gray-900 mb-4">Actions</h2>
                   <div className="flex flex-wrap gap-3">
                     <Button variant="primary">Valider l'analyse</Button>
-                    <Button variant="secondary">Exporter le rapport</Button>
-                    <Button variant="outline">Comparer avec d'autres CV</Button>
+                    <Button variant="secondary" onClick={async () => {
+                      if (!selectedCandidateId) return;
+                      const candidate = filteredCandidates.find(c => c.id === selectedCandidateId);
+                      if (!candidate) return;
+                      try {
+                        await candidateService.exportCandidateReport(candidate.id, candidate.name);
+                        setToast({ message: 'Rapport PDF exporté avec succès !', type: 'success' });
+                      } catch (e: any) {
+                        setToast({ message: e.message || 'Erreur lors de l\'export PDF', type: 'error' });
+                      }
+                    }}>Exporter le rapport</Button>
+                    <Button variant="outline" onClick={async () => {
+                      if (!selectedCandidateId) return;
+                      const candidate = filteredCandidates.find(c => c.id === selectedCandidateId);
+                      if (!candidate) return;
+                      try {
+                        await candidateService.copyCandidateToClipboard(candidate);
+                        setToast({ message: 'Rapport copié dans le presse-papiers !', type: 'success' });
+                      } catch (e: any) {
+                        setToast({ message: e.message || 'Erreur lors de la copie', type: 'error' });
+                      }
+                    }}>Copier le rapport</Button>
+                    <Button variant="outline" onClick={() => handleDeleteCandidate(selectedCandidateId!)} disabled={!selectedCandidateId}>
+                      Supprimer ce CV
+                    </Button>
                   </div>
                 </Card>
               </>
@@ -290,7 +481,6 @@ const CV: React.FC<CVProps> = ({ activeBrief, onBriefChange, candidates, setCand
             )}
           </div>
         </div>
-
         {toast && (
           <Toast
             message={toast.message}
@@ -298,6 +488,7 @@ const CV: React.FC<CVProps> = ({ activeBrief, onBriefChange, candidates, setCand
             onClose={() => setToast(null)}
           />
         )}
+        </div>
       </div>
     </div>
   );

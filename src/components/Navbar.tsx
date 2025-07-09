@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { User } from '../services/api';
@@ -18,11 +17,12 @@ const Navbar: React.FC<NavbarProps> = ({ user, onLogout }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const location = useLocation();
 
+  // Ordre : Dashboard → Brief → CV → Entretien → Évaluation
   const menuItems: MenuItem[] = [
     { path: '/dashboard', label: 'Dashboard', icon: 'fas fa-chart-line' },
     { path: '/brief', label: 'Brief', icon: 'fas fa-file-text' },
     { path: '/cv', label: 'CV', icon: 'fas fa-file-upload' },
-    { path: '/context', label: 'Contexte', icon: 'fas fa-building' },
+    { path: '/interview', label: 'Entretien', icon: 'fas fa-comments' },
     { path: '/evaluation', label: 'Évaluation', icon: 'fas fa-chart-pie' },
   ];
 
