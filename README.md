@@ -1,6 +1,6 @@
-# TechNova RH
+# TheRecruit
 
-**TechNova RH** est une plateforme complète de gestion de recrutement, combinant un frontend moderne React/TypeScript et un backend Python/Flask robuste.
+**TheRecruit** est une plateforme complète de gestion de recrutement, combinant un frontend moderne React/TypeScript et un backend Python/Flask robuste.
 
 ## Fonctionnalités principales
 
@@ -58,12 +58,3 @@ flask run
 
 - `TechNova_FT/` : Frontend React
 - `TechNovaBackend/` : Backend Flask
-
-## Contribution
-
-Les PR sont les bienvenues ! Merci de respecter la structure et les conventions du projet.
-
----
-
-**Contact** : [Votre nom ou équipe]  
-**Licence** : MIT
