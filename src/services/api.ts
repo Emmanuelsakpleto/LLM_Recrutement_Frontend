@@ -29,12 +29,16 @@ export interface Candidate {
     skills_score?: number;
     experience_score?: number;
     education_score?: number;
+    culture_score?: number;
+    interview_score?: number;
     // autres propriétés si besoin
   } | null;
   id: number;
   name: string;
   cv_analysis?: CVAnalysis;
   predictive_score?: number;
+  culture_score?: number; // Score de culture calculé par le backend
+  interview_score?: number; // Score d'entretien calculé par le backend
   appreciations?: Appreciation[];
   status: string;
   report_summary?: string; // <-- Ajouté pour corriger l'erreur de typage
@@ -426,6 +430,14 @@ export const cvService = {
 };
 
 export const candidateService = {
+  async getCandidateById(candidateId: number): Promise<ApiResponse<any>> {
+    console.log(`👤 Récupération du candidat ${candidateId}`);
+    return apiCall(`/candidates/${candidateId}`, {
+      method: 'GET',
+      headers: TokenManager.getAuthHeaders(),
+    });
+  },
+
   async getCandidates(): Promise<ApiResponse<Candidate[]>> {
     return apiCall('/candidates');
   },
@@ -499,10 +511,47 @@ Score final: ${scores.final_score ?? 0}%
 
   async submitEvaluation(candidateId: number, evaluationData: any): Promise<ApiResponse<any>> {
     console.log(`📊 Soumission de l'évaluation pour le candidat ${candidateId}`, evaluationData);
-    return apiCall(`/candidates/${candidateId}/evaluate`, {
-      method: 'POST',
-      body: JSON.stringify(evaluationData),
-    });
+    
+    try {
+      // Étape 1: Évaluer l'entretien (calcul scores culture et entretien)
+      const evaluationResponse = await apiCall(`/candidates/${candidateId}/evaluate-interview`, {
+        method: 'POST',
+        body: JSON.stringify(evaluationData),
+      });
+
+      console.log('📊 Réponse evaluate-interview:', evaluationResponse);
+
+      if (evaluationResponse.error) {
+        return evaluationResponse;
+      }
+
+      // Étape 2: Finaliser l'évaluation (calcul score prédictif final + radar + recommandations)
+      const finalizationResponse = await apiCall(`/candidates/${candidateId}/finalize-evaluation`, {
+        method: 'POST',
+      });
+
+      console.log('📊 Réponse finalize-evaluation:', finalizationResponse);
+
+      if (finalizationResponse.error) {
+        return finalizationResponse;
+      }
+
+      // Étape 3: Récupérer les données complètes en rechargeant tous les candidats
+      const candidatesResponse = await this.getCandidates();
+      
+      console.log('📊 Données candidats après évaluation:', candidatesResponse);
+      
+      const updatedCandidate = candidatesResponse.data?.find((c: any) => c.id === candidateId);
+      
+      return {
+        data: updatedCandidate || {},
+        message: 'Évaluation complétée avec succès'
+      };
+
+    } catch (error) {
+      console.error('Erreur lors de la soumission d\'évaluation:', error);
+      return { error: 'Erreur lors de la soumission d\'évaluation' };
+    }
   },
 
   // Nouvelles méthodes pour le processus de recrutement

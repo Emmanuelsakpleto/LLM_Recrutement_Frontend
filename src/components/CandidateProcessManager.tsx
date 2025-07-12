@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { candidateService } from '../services/api';
+import { candidateService, InterviewQuestion, Candidate } from '../services/api';
 
 interface CandidateProcessStage {
   id: number;
@@ -13,7 +13,7 @@ interface CandidateProcessStage {
   culture_score: number;
   interview_score: number;
   final_predictive_score: number;
-  interview_questions?: any[];
+  interview_questions?: InterviewQuestion[];
 }
 
 interface CandidateProcessManagerProps {
@@ -28,8 +28,8 @@ const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({
   const [candidates, setCandidates] = useState<CandidateProcessStage[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedCandidate, setSelectedCandidate] = useState<number | null>(null);
-  const [interviewQuestions, setInterviewQuestions] = useState<any[]>([]);
-  const [evaluations, setEvaluations] = useState<any[]>([]);
+  const [interviewQuestions, setInterviewQuestions] = useState<InterviewQuestion[]>([]);
+  const [evaluations, setEvaluations] = useState<unknown[]>([]);
 
   // Charger les candidats
   useEffect(() => {
@@ -40,7 +40,7 @@ const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({
     try {
       const response = await candidateService.getCandidates();
       const filteredCandidates = response.data?.filter(
-        (candidate: any) => candidate.brief_id === briefId
+        (candidate: Candidate) => candidate.brief_id === briefId
       ) || [];
       setCandidates(filteredCandidates);
     } catch (error) {
@@ -71,9 +71,10 @@ const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({
         console.error('Données manquantes dans la réponse:', response);
         alert(`❌ Erreur: ${response.error || 'Structure de données inattendue'}`);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erreur génération questions:', error);
-      alert(`❌ Erreur génération questions: ${error.message || 'Erreur inconnue'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+      alert(`❌ Erreur génération questions: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
@@ -87,8 +88,25 @@ const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({
       
       console.log('Réponse récupération questions:', response); // Debug
       
-      // Les questions peuvent être directement dans data.questions ou imbriquées
-      const questions = response.data?.questions?.questions || response.data?.questions;
+      // Même logique d'extraction que dans Interview.tsx
+      let questions = null;
+      
+      // Priorité 1: Les données sont directement dans response
+      if (response.questions?.questions && Array.isArray(response.questions.questions)) {
+        questions = response.questions.questions;
+      }
+      // Priorité 2: Les données sont dans response.data
+      else if (response.data?.questions?.questions && Array.isArray(response.data.questions.questions)) {
+        questions = response.data.questions.questions;
+      }
+      // Priorité 3: Questions directement dans response.data.questions
+      else if (response.data?.questions && Array.isArray(response.data.questions)) {
+        questions = response.data.questions;
+      }
+      // Priorité 4: Questions directement dans response.questions
+      else if (response.questions && Array.isArray(response.questions)) {
+        questions = response.questions;
+      }
       
       if (questions && Array.isArray(questions)) {
         setInterviewQuestions(questions);
@@ -98,16 +116,17 @@ const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({
         console.error('Aucune question trouvée pour ce candidat:', response);
         alert('❌ Aucune question trouvée pour ce candidat');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erreur récupération questions:', error);
-      alert(`❌ Erreur récupération questions: ${error.message || 'Erreur inconnue'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+      alert(`❌ Erreur récupération questions: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
   };
 
   // Évaluer entretien
-  const evaluateInterview = async (candidateId: number, evaluationData: any[]) => {
+  const evaluateInterview = async (candidateId: number, evaluationData: unknown[]) => {
     try {
       setLoading(true);
       const response = await candidateService.evaluateInterview(candidateId, evaluationData);
@@ -311,7 +330,7 @@ const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({
                   {index + 1}
                 </span>
                 <div className="flex-1">
-                  <p className="text-gray-800 font-medium">{question.question || question}</p>
+                  <p className="text-gray-800 font-medium">{typeof question === 'string' ? question : question.question}</p>
                   {question.category && (
                     <span className="inline-block mt-2 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
                       {question.category}

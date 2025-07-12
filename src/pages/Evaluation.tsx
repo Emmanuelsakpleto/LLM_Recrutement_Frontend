@@ -5,7 +5,7 @@ import Toast from '../components/Toast';
 import RadarChart from '../components/RadarChart';
 import BriefSelector from '../components/BriefSelector';
 import ContextSelector, { CompanyContextType } from '../components/ContextSelector';
-import { candidateService, contextService, JobBrief, Candidate, companyContextService } from '../services/api';
+import { candidateService, contextService, JobBrief, Candidate, InterviewQuestion, companyContextService } from '../services/api';
 import { useCompanyContext } from '../context/CompanyContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -28,6 +28,7 @@ interface EvaluationResult {
   strengths: string[];
   weaknesses: string[];
   recommendations: string[];
+  risks: string[];
   radar_data: Record<string, number>;
   total_questions: number;
   answered_questions: number;
@@ -49,7 +50,7 @@ const Evaluation: React.FC<EvaluationProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [evaluationResult, setEvaluationResult] = useState<EvaluationResult | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
-  const [questions, setQuestions] = useState<any[]>([]); // Use any[] for now, type might need adjustment
+  const [questions, setQuestions] = useState<InterviewQuestion[]>([]);
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [contexts, setContexts] = useState<CompanyContextType[]>([]);
 
@@ -62,22 +63,58 @@ const Evaluation: React.FC<EvaluationProps> = ({
 
   // Met à jour les questions à chaque changement de candidat sélectionné
   useEffect(() => {
-    if (selectedCandidate && selectedCandidate.interview_questions) {
-      let q = selectedCandidate.interview_questions;
-      if (typeof q === 'string') {
-        try {
-          q = JSON.parse(q);
-        } catch (e) {
-          setToast({ message: "Format des questions invalide (JSON)", type: 'error' });
-          setQuestions([]);
-          return;
+    if (selectedCandidate) {
+      // Essayer d'abord d'extraire les questions des données du candidat
+      if (selectedCandidate.interview_questions) {
+        let q: unknown = selectedCandidate.interview_questions;
+        
+        if (typeof q === 'string') {
+          try {
+            q = JSON.parse(q);
+          } catch (e) {
+            console.error('❌ Error parsing JSON questions:', e);
+            setToast({ message: "Format des questions invalide (JSON)", type: 'error' });
+            setQuestions([]);
+            return;
+          }
         }
-      }
-      if (Array.isArray(q)) {
-        setQuestions(q);
+        
+        // Logique robuste d'extraction des questions avec priorité
+        let extractedQuestions: InterviewQuestion[] = [];
+        
+        // Priorité 1: Directement un tableau
+        if (Array.isArray(q)) {
+          extractedQuestions = q;
+        }
+        // Priorité 2: q.questions.questions (structure imbriquée)
+        else if (q && typeof q === 'object' && 'questions' in q && q.questions && typeof q.questions === 'object' && 'questions' in q.questions && Array.isArray(q.questions.questions)) {
+          extractedQuestions = q.questions.questions;
+        }
+        // Priorité 3: q.questions (structure simple)
+        else if (q && typeof q === 'object' && 'questions' in q && Array.isArray(q.questions)) {
+          extractedQuestions = q.questions;
+        }
+        // Priorité 4: q.data.questions
+        else if (q && typeof q === 'object' && 'data' in q && q.data && typeof q.data === 'object' && 'questions' in q.data && Array.isArray(q.data.questions)) {
+          extractedQuestions = q.data.questions;
+        }
+        // Priorité 5: q.data.questions.questions
+        else if (q && typeof q === 'object' && 'data' in q && q.data && typeof q.data === 'object' && 'questions' in q.data && q.data.questions && typeof q.data.questions === 'object' && 'questions' in q.data.questions && Array.isArray(q.data.questions.questions)) {
+          extractedQuestions = q.data.questions.questions;
+        }
+        
+        if (extractedQuestions.length > 0) {
+          console.log('✅ Questions loaded from candidate data:', extractedQuestions.length);
+          setQuestions(extractedQuestions);
+        } else {
+          console.log('⚠️ No questions found in candidate data, trying API call...');
+          // Si on ne trouve pas les questions dans les données du candidat, essayer l'API
+          loadInterviewQuestions(selectedCandidate.id);
+        }
       } else {
-        setToast({ message: "Format des questions d'entretien non reconnu", type: 'error' });
-        setQuestions([]);
+        console.log('ℹ️ No interview_questions in candidate, trying API call...');
+        // Essayer de charger les questions via l'API spécifique
+        loadInterviewQuestions(selectedCandidate.id);
       }
     } else {
       setQuestions([]);
@@ -136,7 +173,7 @@ const Evaluation: React.FC<EvaluationProps> = ({
     try {
       // Préparer les données d'évaluation
       const evaluationData = {
-        appreciations: questions.map((question, index) => ({
+        evaluations: questions.map((question, index) => ({
           question: question.question,
           category: question.category,
           appreciation: getAppreciationLabel(appreciations[index]),
@@ -145,32 +182,60 @@ const Evaluation: React.FC<EvaluationProps> = ({
       };
 
       const response = await candidateService.submitEvaluation(selectedCandidate.id, evaluationData);
-      if (response.data && response.data.analysis) {
+      if (response.data) {
+        // La nouvelle API retourne directement les données analysées
+        const analysisData = response.data;
         setEvaluationResult({
-          ...response.data.analysis,
+          predictive_score: analysisData.predictive_score || analysisData.final_predictive_score,
+          risks: Array.isArray(analysisData.risks) ? analysisData.risks : [],
+          recommendations: Array.isArray(analysisData.recommendations) ? analysisData.recommendations : [],
+          radar_data: analysisData.radar_data || {},
           total_questions: totalQuestions,
           answered_questions: answeredQuestions,
-          average_score: Object.values(appreciations).reduce((a, b) => a + b, 0) / Object.values(appreciations).length
+          average_score: Object.values(appreciations).reduce((a, b) => a + b, 0) / Object.values(appreciations).length,
+          strengths: ["Évaluation complétée avec succès"],
+          weaknesses: []
         });
         setToast({ message: 'Évaluation soumise avec succès !', type: 'success' });
+        
+        // Mettre à jour le candidat dans la liste
         setCandidates(prev => prev.map(c => 
           c.id === selectedCandidate.id 
             ? {
                 ...c,
-                ...response.data.analysis, // merge toutes les propriétés du backend (radar_data, risks, recommendations, etc.)
-                status: 'Évalué',
-                predictive_score: response.data.analysis.predictive_score,
-                radar_data: response.data.analysis.radar_data || c.radar_data,
-                risks: response.data.analysis.risks || c.risks,
-                recommendations: response.data.analysis.recommendations || c.recommendations,
-                appreciations: response.data.analysis.appreciations || c.appreciations,
-                interview_questions: response.data.analysis.interview_questions || c.interview_questions
+                status: 'Évaluation complète',
+                predictive_score: analysisData.predictive_score || analysisData.final_predictive_score,
+                radar_data: analysisData.radar_data || c.radar_data,
+                risks: analysisData.risks || c.risks,
+                recommendations: analysisData.recommendations || c.recommendations,
+                appreciations: evaluationData.evaluations // Les appréciations qu'on vient de soumettre
               }
             : c
         ));
-        // Rafraîchir la liste complète des candidats pour garantir la synchro des questions
+        
+        // Rafraîchir la liste complète avec parsing
         candidateService.getCandidates().then(res => {
-          if (res.data) setCandidates(res.data);
+          if (res.data) {
+            const parsedCandidates = res.data.map((candidate: any) => {
+              try {
+                return {
+                  ...candidate,
+                  radar_data: typeof candidate.radar_data === 'string' 
+                    ? JSON.parse(candidate.radar_data) 
+                    : candidate.radar_data,
+                  risks: typeof candidate.risks === 'string' 
+                    ? JSON.parse(candidate.risks) 
+                    : candidate.risks,
+                  recommendations: typeof candidate.recommendations === 'string' 
+                    ? JSON.parse(candidate.recommendations) 
+                    : candidate.recommendations
+                };
+              } catch (e) {
+                return candidate;
+              }
+            });
+            setCandidates(parsedCandidates);
+          }
         });
       } else if (response.error) {
         setToast({ message: response.error, type: 'error' });
@@ -254,6 +319,89 @@ const Evaluation: React.FC<EvaluationProps> = ({
     }
   };
 
+  // Fonction pour recharger les candidats depuis la base de données
+  const refreshCandidates = async () => {
+    try {
+      console.log('🔄 Refreshing candidates from database...');
+      const response = await candidateService.getCandidates();
+      if (response.data) {
+        setCandidates(response.data);
+        
+        // Mettre à jour le candidat sélectionné avec les nouvelles données
+        if (selectedCandidate) {
+          const updatedCandidate = response.data.find(c => c.id === selectedCandidate.id);
+          if (updatedCandidate) {
+            setSelectedCandidate(updatedCandidate);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error refreshing candidates:', error);
+      setToast({ message: 'Erreur lors du rechargement des candidats', type: 'error' });
+    }
+  };
+
+  // Recharger les candidats au montage du composant
+  useEffect(() => {
+    refreshCandidates();
+  }, []);
+
+  // Fonction pour récupérer les questions d'entretien d'un candidat spécifique
+  const loadInterviewQuestions = async (candidateId: number) => {
+    try {
+      console.log('� Loading interview questions for candidate:', candidateId);
+      const response = await candidateService.getInterviewQuestions(candidateId);
+      console.log('📦 Full API response:', response);
+      
+      // Utiliser la même logique d'extraction que dans Interview.tsx
+      let questions = null;
+      
+      // Priorité 1: response.questions.questions (structure observée dans les logs)
+      if (response.questions?.questions && Array.isArray(response.questions.questions)) {
+        questions = response.questions.questions;
+        console.log('✅ Found questions in response.questions.questions');
+      }
+      // Priorité 2: Les données sont dans response.data (structure normale)
+      else if (response.data?.questions?.questions && Array.isArray(response.data.questions.questions)) {
+        questions = response.data.questions.questions;
+        console.log('✅ Found questions in response.data.questions.questions');
+      }
+      // Priorité 3: Questions directement dans response.data.questions
+      else if (response.data?.questions && Array.isArray(response.data.questions)) {
+        questions = response.data.questions;
+        console.log('✅ Found questions in response.data.questions');
+      }
+      // Priorité 4: Questions directement dans response.questions (si c'est un array)
+      else if (response.questions && Array.isArray(response.questions)) {
+        questions = response.questions;
+        console.log('✅ Found questions in response.questions');
+      }
+      // Priorité 5: Données directement dans response.data si c'est un array
+      else if (response.data && Array.isArray(response.data)) {
+        questions = response.data;
+        console.log('✅ Found questions in response.data');
+      }
+      
+      if (questions && Array.isArray(questions) && questions.length > 0) {
+        console.log('✅ Questions loaded from API:', questions.length);
+        setQuestions(questions);
+        return true;
+      }
+      
+      console.log('❌ No questions found in API response');
+      console.log('🔍 Response structure:', {
+        hasData: !!response.data,
+        hasQuestions: !!response.questions,
+        dataType: typeof response.data,
+        questionsType: typeof response.questions
+      });
+      return false;
+    } catch (error) {
+      console.error('❌ Error loading interview questions:', error);
+      return false;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-4 lg:p-8">
       <div className="max-w-6xl mx-auto">
@@ -294,22 +442,32 @@ const Evaluation: React.FC<EvaluationProps> = ({
                 <h3 className="text-lg font-semibold text-gray-900">Candidat à Évaluer</h3>
               </div>
               
-              <select
-                value={selectedCandidate?.id || ''}
-                onChange={(e) => {
-                  const candidate = candidates.find(c => c.id === parseInt(e.target.value));
-                  setSelectedCandidate(candidate || null);
-                  setAppreciations({}); // Reset appreciations when changing candidate
-                }}
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              >
-                <option value="">Sélectionner un candidat...</option>
-                {candidates.filter(c => activeBrief && c.brief_id === activeBrief.id).map((candidate) => (
-                  <option key={candidate.id} value={candidate.id}>
-                    {candidate.name} (ID: {candidate.id})
-                  </option>
-                ))}
-              </select>
+              <div className="flex items-center space-x-2">
+                <select
+                  value={selectedCandidate?.id || ''}
+                  onChange={(e) => {
+                    const candidate = candidates.find(c => c.id === parseInt(e.target.value));
+                    setSelectedCandidate(candidate || null);
+                    setAppreciations({}); // Reset appreciations when changing candidate
+                  }}
+                  className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                >
+                  <option value="">Sélectionner un candidat...</option>
+                  {candidates.filter(c => activeBrief && c.brief_id === activeBrief.id).map((candidate) => (
+                    <option key={candidate.id} value={candidate.id}>
+                      {candidate.name} (ID: {candidate.id})
+                    </option>
+                  ))}
+                </select>
+                
+                <button
+                  onClick={refreshCandidates}
+                  className="px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
+                  title="Recharger les candidats"
+                >
+                  <i className="fas fa-sync-alt"></i>
+                </button>
+              </div>
             </div>
             
             {selectedCandidate && (
@@ -324,6 +482,22 @@ const Evaluation: React.FC<EvaluationProps> = ({
 
         {!evaluationResult ? (
           <div className="space-y-6">
+            {/* Info */}
+            <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-700 mb-4">
+              <div className="flex items-start space-x-2">
+                <i className="fas fa-info-circle text-blue-500 mt-0.5"></i>
+                <div>
+                  <strong>Candidat sélectionné:</strong> {selectedCandidate?.name || 'Aucun'}<br/>
+                  <strong>Questions d'entretien:</strong> {questions.length > 0 ? `${questions.length} questions chargées` : 'Aucune question trouvée'}<br/>
+                  {!selectedCandidate?.interview_questions && selectedCandidate && (
+                    <div className="mt-2 p-2 bg-yellow-100 text-yellow-700 rounded">
+                      ⚠️ Ce candidat n'a pas de questions d'entretien. Allez d'abord sur la page "Entretien" pour générer les questions.
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+            
             {questions.length > 0 ? (
               <>
                 {/* Progress */}
@@ -490,12 +664,16 @@ const Evaluation: React.FC<EvaluationProps> = ({
                     Points Forts
                   </h3>
                   <div className="space-y-2">
-                    {evaluationResult.strengths.map((strength, index) => (
-                      <div key={index} className="flex items-start space-x-2">
-                        <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-                        <span className="text-sm text-gray-700">{strength}</span>
-                      </div>
-                    ))}
+                    {Array.isArray(evaluationResult?.strengths) && evaluationResult.strengths.length > 0 ? (
+                      evaluationResult.strengths.map((strength, index) => (
+                        <div key={index} className="flex items-start space-x-2">
+                          <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
+                          <span className="text-sm text-gray-700">{strength}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <span className="text-sm text-gray-400">Aucun point fort identifié</span>
+                    )}
                   </div>
                 </Card>
 
@@ -505,12 +683,16 @@ const Evaluation: React.FC<EvaluationProps> = ({
                     Points d'Amélioration
                   </h3>
                   <div className="space-y-2">
-                    {evaluationResult.weaknesses.map((weakness, index) => (
-                      <div key={index} className="flex items-start space-x-2">
-                        <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
-                        <span className="text-sm text-gray-700">{weakness}</span>
-                      </div>
-                    ))}
+                    {Array.isArray(evaluationResult?.weaknesses) && evaluationResult.weaknesses.length > 0 ? (
+                      evaluationResult.weaknesses.map((weakness, index) => (
+                        <div key={index} className="flex items-start space-x-2">
+                          <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
+                          <span className="text-sm text-gray-700">{weakness}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <span className="text-sm text-gray-400">Aucun point d'amélioration identifié</span>
+                    )}
                   </div>
                 </Card>
 
@@ -520,12 +702,16 @@ const Evaluation: React.FC<EvaluationProps> = ({
                     Recommandations d'Onboarding
                   </h3>
                   <div className="space-y-2">
-                    {evaluationResult.recommendations.map((rec, index) => (
-                      <div key={index} className="flex items-start space-x-2">
-                        <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
-                        <span className="text-sm text-gray-700">{rec}</span>
-                      </div>
-                    ))}
+                    {Array.isArray(evaluationResult?.recommendations) && evaluationResult.recommendations.length > 0 ? (
+                      evaluationResult.recommendations.map((rec, index) => (
+                        <div key={index} className="flex items-start space-x-2">
+                          <div className="w-2 h-2 bg-blue-500 rounded-full mt-2 flex-shrink-0"></div>
+                          <span className="text-sm text-gray-700">{rec}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <span className="text-sm text-gray-400">Aucune recommandation disponible</span>
+                    )}
                   </div>
                 </Card>
               </div>
