@@ -652,8 +652,14 @@ const Evaluation: React.FC<EvaluationProps> = ({
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               {/* Radar Chart */}
               <RadarChart 
-                data={evaluationResult.radar_data} 
+                data={evaluationResult.radar_data ? [{ 
+                  name: selectedCandidate?.name || 'Candidat', 
+                  values: evaluationResult.radar_data, 
+                  color: '#3b82f6' 
+                }] : []} 
                 title="Profil de Performance"
+                axes={['Compétences', 'Expérience', 'Formation', 'Culture', 'Entretien']}
+                polygon={true}
               />
 
               {/* Recommendations & Risks */}
