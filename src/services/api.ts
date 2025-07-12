@@ -513,6 +513,13 @@ Score final: ${scores.final_score ?? 0}%
     });
   },
 
+  async getInterviewQuestions(candidateId: number): Promise<ApiResponse<any>> {
+    return apiCall(`/candidates/${candidateId}/interview-questions`, {
+      method: 'GET',
+      headers: TokenManager.getAuthHeaders(),
+    });
+  },
+
   async evaluateInterview(candidateId: number, evaluations: any[]): Promise<ApiResponse<any>> {
     return apiCall(`/candidates/${candidateId}/evaluate-interview`, {
       method: 'POST',
@@ -585,12 +592,11 @@ export const contextService = {
     await navigator.clipboard.writeText(text);
     console.log('✅ Questions copiées dans le presse-papiers (texte brut)');
   },
+  // Note: Cette méthode est dépréciée, utilisez candidateService.generateInterviewQuestions() à la place
   async createContext({ values, culture, brief_id, candidate_id }: { values: string[]; culture: string; brief_id: number; candidate_id: number }): Promise<ApiResponse<{ questions: InterviewQuestion[] }>> {
-    return apiCall('/context/generate-questions', {
-      method: 'POST',
-      body: JSON.stringify({ values, culture, brief_id, candidate_id }),
-      headers: TokenManager.getAuthHeaders(),
-    });
+    console.warn('⚠️ Méthode createContext dépréciée, utilisez candidateService.generateInterviewQuestions() à la place');
+    // Rediriger vers la nouvelle API
+    return candidateService.generateInterviewQuestions(candidate_id);
   },
 };
 

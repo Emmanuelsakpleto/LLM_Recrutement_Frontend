@@ -64,13 +64,8 @@ const Interview: React.FC = () => {
       const candidate = candidates.find(c => c.id === selectedCandidateId);
       const brief = briefs.find(b => b.id === selectedBriefId);
       if (!candidate || !brief) throw new Error('Brief ou candidat introuvable');
-      // Appel backend pour générer les questions
-      const response = await contextService.createContext({
-        values: brief.skills,
-        culture: brief.description,
-        brief_id: brief.id,
-        candidate_id: candidate.id
-      });
+      // Appel backend pour générer les questions avec la nouvelle API
+      const response = await candidateService.generateInterviewQuestions(candidate.id);
       if (response.data && response.data.questions) {
         setQuestions(response.data.questions);
         setToast({ message: `${response.data.questions.length} questions générées !`, type: 'success' });

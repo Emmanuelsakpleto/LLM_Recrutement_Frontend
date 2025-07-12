@@ -54,23 +54,41 @@ const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({
   const generateInterviewQuestions = async (candidateId: number) => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:5000/api/candidates/${candidateId}/generate-interview-questions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('jwt_token')}`
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setInterviewQuestions(data.questions);
+      const response = await candidateService.generateInterviewQuestions(candidateId);
+      
+      console.log('Réponse génération questions:', response); // Debug
+      
+      if (response.data && response.data.questions) {
+        setInterviewQuestions(response.data.questions);
         setSelectedCandidate(candidateId);
         await loadCandidates(); // Recharger pour mettre à jour le statut
         onStageChange?.(candidateId, 'interview_questions');
+      } else {
+        console.error('Données manquantes dans la réponse:', response);
       }
     } catch (error) {
       console.error('Erreur génération questions:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Récupérer les questions existantes
+  const viewInterviewQuestions = async (candidateId: number) => {
+    try {
+      setLoading(true);
+      const response = await candidateService.getInterviewQuestions(candidateId);
+      
+      console.log('Réponse récupération questions:', response); // Debug
+      
+      if (response.data && response.data.questions) {
+        setInterviewQuestions(response.data.questions);
+        setSelectedCandidate(candidateId);
+      } else {
+        console.error('Aucune question trouvée pour ce candidat');
+      }
+    } catch (error) {
+      console.error('Erreur récupération questions:', error);
     } finally {
       setLoading(false);
     }
@@ -80,16 +98,9 @@ const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({
   const evaluateInterview = async (candidateId: number, evaluationData: any[]) => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:5000/api/candidates/${candidateId}/evaluate-interview`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('jwt_token')}`
-        },
-        body: JSON.stringify({ evaluations: evaluationData })
-      });
-
-      if (response.ok) {
+      const response = await candidateService.evaluateInterview(candidateId, evaluationData);
+      
+      if (response.data) {
         await loadCandidates();
         onStageChange?.(candidateId, 'interview_evaluation');
       }
@@ -100,19 +111,33 @@ const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({
     }
   };
 
+  // Supprimer candidat
+  const deleteCandidate = async (candidateId: number) => {
+    if (!window.confirm('Êtes-vous sûr de vouloir supprimer ce candidat ? Cette action est irréversible.')) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const response = await candidateService.deleteCandidate(candidateId);
+      
+      if (response.data) {
+        await loadCandidates(); // Recharger la liste
+      }
+    } catch (error) {
+      console.error('Erreur suppression candidat:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   // Finaliser évaluation
   const finalizeEvaluation = async (candidateId: number) => {
     try {
       setLoading(true);
-      const response = await fetch(`http://localhost:5000/api/candidates/${candidateId}/finalize-evaluation`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('jwt_token')}`
-        }
-      });
-
-      if (response.ok) {
+      const response = await candidateService.finalizeEvaluation(candidateId);
+      
+      if (response.data) {
         await loadCandidates();
         onStageChange?.(candidateId, 'final_evaluation');
       }
@@ -152,37 +177,67 @@ const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({
   // Composant pour les actions
   const CandidateActions = ({ candidate }: { candidate: CandidateProcessStage }) => {
     const canGenerateQuestions = candidate.process_stage === 'cv_analysis';
+    const canViewQuestions = ['interview_questions', 'interview_evaluation', 'final_evaluation'].includes(candidate.process_stage);
     const canEvaluate = candidate.process_stage === 'interview_questions';
     const canFinalize = candidate.process_stage === 'interview_evaluation';
 
     return (
-      <div className="flex space-x-2">
-        {canGenerateQuestions && (
+      <div className="flex flex-col space-y-2">
+        <div className="flex space-x-2">
+          {canGenerateQuestions && (
+            <button
+              onClick={() => generateInterviewQuestions(candidate.id)}
+              className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+              disabled={loading}
+            >
+              Générer Questions
+            </button>
+          )}
+          {canViewQuestions && (
+            <button
+              onClick={() => viewInterviewQuestions(candidate.id)}
+              className="px-3 py-1 bg-indigo-500 text-white rounded hover:bg-indigo-600 text-sm"
+              disabled={loading}
+            >
+              📝 Voir Questions
+            </button>
+          )}
+          {canEvaluate && (
+            <button
+              onClick={() => setSelectedCandidate(candidate.id)}
+              className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm"
+            >
+              Évaluer Entretien
+            </button>
+          )}
+          {canFinalize && (
+            <button
+              onClick={() => finalizeEvaluation(candidate.id)}
+              className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 text-sm"
+              disabled={loading}
+            >
+              Finaliser Évaluation
+            </button>
+          )}
+        </div>
+        
+        {/* Actions secondaires */}
+        <div className="flex space-x-2">
           <button
-            onClick={() => generateInterviewQuestions(candidate.id)}
-            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+            onClick={() => deleteCandidate(candidate.id)}
+            className="px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600 text-xs"
             disabled={loading}
+            title="Supprimer ce candidat"
           >
-            Générer Questions
+            🗑️ Supprimer
           </button>
-        )}
-        {canEvaluate && (
           <button
-            onClick={() => setSelectedCandidate(candidate.id)}
-            className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm"
+            className="px-2 py-1 bg-gray-500 text-white rounded hover:bg-gray-600 text-xs"
+            title="Exporter le rapport"
           >
-            Évaluer Entretien
+            📄 Export
           </button>
-        )}
-        {canFinalize && (
-          <button
-            onClick={() => finalizeEvaluation(candidate.id)}
-            className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 text-sm"
-            disabled={loading}
-          >
-            Finaliser Évaluation
-          </button>
-        )}
+        </div>
       </div>
     );
   };
@@ -209,6 +264,61 @@ const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({
             </div>
           </div>
         ))}
+      </div>
+    );
+  };
+
+  // Composant pour afficher les questions d'entretien
+  const InterviewQuestionsDisplay = () => {
+    if (!selectedCandidate || interviewQuestions.length === 0) return null;
+
+    const candidate = candidates.find(c => c.id === selectedCandidate);
+    
+    return (
+      <div className="mt-6 bg-blue-50 rounded-lg p-4 border border-blue-200">
+        <div className="flex items-center justify-between mb-4">
+          <h4 className="text-lg font-semibold text-blue-900">
+            📝 Questions d'entretien - {candidate?.name}
+          </h4>
+          <button
+            onClick={() => {
+              setSelectedCandidate(null);
+              setInterviewQuestions([]);
+            }}
+            className="text-blue-600 hover:text-blue-800"
+          >
+            ✕ Fermer
+          </button>
+        </div>
+        
+        <div className="space-y-3">
+          {interviewQuestions.map((question, index) => (
+            <div key={index} className="bg-white rounded-lg p-3 border border-blue-100">
+              <div className="flex items-start space-x-3">
+                <span className="inline-flex items-center justify-center w-6 h-6 bg-blue-500 text-white text-sm font-semibold rounded-full flex-shrink-0">
+                  {index + 1}
+                </span>
+                <div className="flex-1">
+                  <p className="text-gray-800 font-medium">{question.question || question}</p>
+                  {question.category && (
+                    <span className="inline-block mt-2 px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
+                      {question.category}
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        
+        <div className="mt-4 flex space-x-2">
+          <button className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+            📄 Exporter Questions
+          </button>
+          <button className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600">
+            ✅ Commencer Évaluation
+          </button>
+        </div>
       </div>
     );
   };
@@ -277,6 +387,8 @@ const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({
             ))}
           </div>
         )}
+
+        <InterviewQuestionsDisplay />
       </div>
     </div>
   );
