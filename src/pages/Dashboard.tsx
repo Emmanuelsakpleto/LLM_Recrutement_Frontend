@@ -10,6 +10,16 @@ import { filterCandidatesByBrief } from '../lib/utils';
 import { useCompanyContext } from '../context/CompanyContext';
 import { useNavigate } from 'react-router-dom';
 
+const COLORS = [
+  '#3b82f6', // bleu
+  '#ef4444', // rouge
+  '#10b981', // vert
+  '#f59e42', // orange
+  '#a855f7', // violet
+  '#6366f1', // indigo
+  '#f43f5e', // rose
+];
+
 interface DashboardProps {
   activeBrief: JobBrief | null;
   onBriefChange: (brief: JobBrief | null) => void;
@@ -33,6 +43,8 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [filter, setFilter] = useState('all');
   const [contexts, setContexts] = useState<CompanyContextType[]>([]);
   const radarRef = useRef<any>(null);
+  const [showComparison, setShowComparison] = useState(false);
+  const [selectedForComparison, setSelectedForComparison] = useState<Set<number>>(new Set());
 
   const filteredByBrief = filterCandidatesByBrief(candidates, activeBrief);
 
@@ -129,8 +141,73 @@ const Dashboard: React.FC<DashboardProps> = ({
     return { displayScore: 0, scoreLabel: 'Score' };
   }
 
-  // Remplacer la génération du radarData par les données backend si présentes
+  // Fonctions pour la comparaison
+  const toggleCandidateComparison = (candidateId: number) => {
+    const newSelected = new Set(selectedForComparison);
+    if (newSelected.has(candidateId)) {
+      newSelected.delete(candidateId);
+    } else if (newSelected.size < 5) { // Limite à 5 candidats pour la lisibilité
+      newSelected.add(candidateId);
+    }
+    setSelectedForComparison(newSelected);
+  };
+
+  const clearComparison = () => {
+    setSelectedForComparison(new Set());
+  };
+
+  // Fonction pour obtenir les données radar d'un candidat
   const getRadarDataFromBackend = (candidate: Candidate) => {
+    // Utiliser d'abord les scores de la base de données (score_details)
+    if (candidate && candidate.score_details) {
+      const scores = candidate.score_details;
+      return {
+        'Compétences': typeof scores.skills_score === 'number' ? Number(scores.skills_score.toFixed(1)) : 0,
+        'Expérience': typeof scores.experience_score === 'number' ? Number(scores.experience_score.toFixed(1)) : 0,
+        'Formation': typeof scores.education_score === 'number' ? Number(scores.education_score.toFixed(1)) : 0,
+        'Culture': typeof scores.culture_score === 'number' ? Number(scores.culture_score.toFixed(1)) : 0,
+        'Entretien': typeof scores.interview_score === 'number' ? Number(scores.interview_score.toFixed(1)) : 0
+      };
+    }
+    
+    // Fallback : utiliser radar_data si score_details n'est pas disponible
+    if (candidate && candidate.radar_data) {
+      const radar = candidate.radar_data;
+      return {
+        'Compétences': typeof radar['Compétences'] === 'number' ? Number(radar['Compétences'].toFixed(1)) : 0,
+        'Expérience': typeof radar['Expérience'] === 'number' ? Number(radar['Expérience'].toFixed(1)) : 0,
+        'Formation': typeof radar['Formation'] === 'number' ? Number(radar['Formation'].toFixed(1)) : 0,
+        'Culture': typeof radar['Culture'] === 'number' ? Number(radar['Culture'].toFixed(1)) : 0,
+        'Entretien': typeof radar['Entretien'] === 'number' ? Number(radar['Entretien'].toFixed(1)) : 0
+      };
+    }
+    
+    // Dernier fallback : ancienne logique locale
+    const ca: any = candidate.cv_analysis || {};
+    const appreciations = Array.isArray(candidate.appreciations) ? candidate.appreciations : [];
+    return {
+      'Compétences': typeof ca.score === 'number' ? Number(ca.score.toFixed(1)) : 0,
+      'Expérience': Array.isArray(ca.experience) ? Number(Math.min(ca.experience.length * 20, 100).toFixed(1)) : 0,
+      'Formation': Array.isArray(ca.education) ? Number(Math.min(ca.education.length * 25, 100).toFixed(1)) : 0,
+      'Culture': typeof candidate.predictive_score === 'number' ? Number(candidate.predictive_score.toFixed(1)) : 0,
+      'Entretien': appreciations.length > 0 ? Number((appreciations.reduce((acc: number, app: any) => acc + (typeof app.score === 'number' ? app.score : 0), 0) / appreciations.length * 25).toFixed(1)) : 0
+    };
+  };
+
+  // Données pour le radar comparatif
+  const comparisonRadarData = Array.from(selectedForComparison).map((candidateId, index) => {
+    const candidate = candidates.find(c => c.id === candidateId);
+    if (!candidate) return null;
+    
+    return {
+      name: candidate.name,
+      color: COLORS[index % COLORS.length],
+      values: getRadarDataFromBackend(candidate)
+    };
+  }).filter(Boolean);
+
+  // Remplacer la génération du radarData par les données backend si présentes
+  /* const getRadarDataFromBackend = (candidate: Candidate) => {
     if (candidate && candidate.radar_data) {
       const radar = candidate.radar_data;
       return {
@@ -151,7 +228,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       'Culture': typeof candidate.predictive_score === 'number' ? Number(candidate.predictive_score.toFixed(1)) : 0,
       'Entretien': appreciations.length > 0 ? Number((appreciations.reduce((acc: number, app: any) => acc + (typeof app.score === 'number' ? app.score : 0), 0) / appreciations.length * 25).toFixed(1)) : 0
     };
-  };
+  }; */
 
   // Handler export PDF rapport individuel
   const handleExportReport = async () => {
@@ -313,6 +390,87 @@ const Dashboard: React.FC<DashboardProps> = ({
           onBriefChange={onBriefChange}
           briefs={briefs}
         />
+
+        {/* Section de comparaison interactive */}
+        <Card className="p-6 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-gray-900 flex items-center">
+              <span className="mr-2">📊</span>
+              Comparaison interactive des candidats
+            </h2>
+            <div className="flex items-center space-x-3">
+              <Button
+                variant={showComparison ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => setShowComparison(!showComparison)}
+              >
+                {showComparison ? 'Masquer' : 'Afficher'} la comparaison
+              </Button>
+              {selectedForComparison.size > 0 && (
+                <Button variant="ghost" size="sm" onClick={clearComparison}>
+                  Effacer ({selectedForComparison.size})
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {showComparison && (
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">
+                Sélectionnez jusqu'à 5 candidats pour les comparer sur le radar. 
+                Candidats sélectionnés : {selectedForComparison.size}/5
+              </p>
+              
+              {/* Liste des candidats avec cases à cocher */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {filteredByBrief.map((candidate) => (
+                  <div
+                    key={candidate.id}
+                    className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                      selectedForComparison.has(candidate.id)
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                    onClick={() => toggleCandidateComparison(candidate.id)}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedForComparison.has(candidate.id)}
+                        onChange={() => toggleCandidateComparison(candidate.id)}
+                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {candidate.name}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          Score: {getDisplayScore(candidate).displayScore}%
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Radar comparatif */}
+              {comparisonRadarData.length >= 2 && (
+                <div className="mt-6">
+                  <RadarChart 
+                    data={comparisonRadarData} 
+                    title={`Comparaison de ${comparisonRadarData.length} candidats`}
+                  />
+                </div>
+              )}
+
+              {comparisonRadarData.length === 1 && (
+                <div className="mt-6 p-4 bg-gray-50 rounded-lg text-center">
+                  <p className="text-gray-600">Sélectionnez au moins 2 candidats pour voir la comparaison</p>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
 
         {/* Section radar comparatif multi-candidats */}
         {radarDatasets.length > 1 && (
