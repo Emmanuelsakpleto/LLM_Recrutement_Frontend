@@ -114,17 +114,17 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   // Fonction utilitaire locale pour afficher le score principal du candidat
   function getDisplayScore(candidate: Candidate): { displayScore: number; scoreLabel: string } {
-    // Priorité : score RH > score prédictif > score analyse CV
-    if (Array.isArray(candidate.appreciations) && candidate.appreciations.length > 0) {
-      // Score RH (moyenne des appréciations)
-      const avg = candidate.appreciations.reduce((acc, app) => acc + (typeof app.score === 'number' && !isNaN(app.score) ? app.score : 0), 0) / candidate.appreciations.length;
-      return { displayScore: Math.round(avg * 25 * 10) / 10, scoreLabel: 'Score RH' };
-    }
+    // Priorité : score prédictif > score analyse CV > score RH
     if (typeof candidate.predictive_score === 'number' && !isNaN(candidate.predictive_score)) {
       return { displayScore: Math.round(candidate.predictive_score * 10) / 10, scoreLabel: 'Score prédictif' };
     }
     if (candidate.cv_analysis && typeof candidate.cv_analysis.score === 'number' && !isNaN(candidate.cv_analysis.score)) {
       return { displayScore: Math.round(candidate.cv_analysis.score * 10) / 10, scoreLabel: 'Score analyse CV' };
+    }
+    if (Array.isArray(candidate.appreciations) && candidate.appreciations.length > 0) {
+      // Score RH (moyenne des appréciations)
+      const avg = candidate.appreciations.reduce((acc, app) => acc + (typeof app.score === 'number' && !isNaN(app.score) ? app.score : 0), 0) / candidate.appreciations.length;
+      return { displayScore: Math.round(avg * 25 * 10) / 10, scoreLabel: 'Score RH' };
     }
     return { displayScore: 0, scoreLabel: 'Score' };
   }
@@ -237,39 +237,48 @@ const Dashboard: React.FC<DashboardProps> = ({
   // Fonction utilitaire pour obtenir les 5 scores détaillés avec provenance
   function getDetailedScores(candidate: Candidate) {
     const ca: any = candidate.cv_analysis || {};
-    const radarData = candidate.radar_data || {};
+    const scoreDetails: any = candidate.score_details || {};
     const appreciations = Array.isArray(candidate.appreciations) ? candidate.appreciations : [];
+    
     return [
       {
         label: 'Compétences',
-        value: typeof ca.score === 'number' ? Number(ca.score.toFixed(1)) : 0,
-        provenance: ca.score !== undefined ? 'CV' : 'N/A',
+        value: typeof scoreDetails.skills_score === 'number' 
+          ? Number(scoreDetails.skills_score.toFixed(1))
+          : (typeof ca.score === 'number' ? Number(ca.score.toFixed(1)) : 0),
+        provenance: scoreDetails.skills_score !== undefined ? 'Backend' : (ca.score !== undefined ? 'CV' : 'N/A'),
       },
       {
         label: 'Expérience',
-        value: Array.isArray(ca.experience) ? Number(Math.min(ca.experience.length * 20, 100).toFixed(1)) : 0,
-        provenance: Array.isArray(ca.experience) ? 'CV' : 'N/A',
+        value: typeof scoreDetails.experience_score === 'number'
+          ? Number(scoreDetails.experience_score.toFixed(1))
+          : (Array.isArray(ca.experience) ? Number(Math.min(ca.experience.length * 20, 100).toFixed(1)) : 0),
+        provenance: scoreDetails.experience_score !== undefined ? 'Backend' : (Array.isArray(ca.experience) ? 'CV' : 'N/A'),
       },
       {
         label: 'Formation',
-        value: Array.isArray(ca.education) ? Number(Math.min(ca.education.length * 25, 100).toFixed(1)) : 0,
-        provenance: Array.isArray(ca.education) ? 'CV' : 'N/A',
-      },
-      {
-        label: 'Entretien',
-        value: typeof radarData['Entretien'] === 'number'
-          ? Number(radarData['Entretien'].toFixed(1))
-          : (appreciations.length > 0
-              ? Number((appreciations.reduce((acc: number, app: any) => acc + (typeof app.score === 'number' ? app.score : 0), 0) / appreciations.length * 25).toFixed(1))
-              : 0),
-        provenance: typeof radarData['Entretien'] === 'number' ? 'Backend' : (appreciations.length > 0 ? 'CV' : 'N/A'),
+        value: typeof scoreDetails.education_score === 'number'
+          ? Number(scoreDetails.education_score.toFixed(1))
+          : (Array.isArray(ca.education) ? Number(Math.min(ca.education.length * 25, 100).toFixed(1)) : 0),
+        provenance: scoreDetails.education_score !== undefined ? 'Backend' : (Array.isArray(ca.education) ? 'CV' : 'N/A'),
       },
       {
         label: 'Culture',
-        value: typeof radarData['Culture'] === 'number'
-          ? Number(radarData['Culture'].toFixed(1))
-          : (typeof candidate.predictive_score === 'number' ? Number(candidate.predictive_score.toFixed(1)) : 0),
-        provenance: typeof radarData['Culture'] === 'number' ? 'Backend' : (typeof candidate.predictive_score === 'number' ? 'CV' : 'N/A'),
+        value: typeof scoreDetails.culture_score === 'number'
+          ? Number(scoreDetails.culture_score.toFixed(1))
+          : (typeof candidate.culture_score === 'number' ? Number(candidate.culture_score.toFixed(1)) : 0),
+        provenance: scoreDetails.culture_score !== undefined || candidate.culture_score !== undefined ? 'Backend' : 'N/A',
+      },
+      {
+        label: 'Entretien',
+        value: typeof scoreDetails.interview_score === 'number'
+          ? Number(scoreDetails.interview_score.toFixed(1))
+          : (typeof candidate.interview_score === 'number' 
+              ? Number(candidate.interview_score.toFixed(1))
+              : (appreciations.length > 0
+                  ? Number((appreciations.reduce((acc: number, app: any) => acc + (typeof app.score === 'number' ? app.score : 0), 0) / appreciations.length * 25).toFixed(1))
+                  : 0)),
+        provenance: scoreDetails.interview_score !== undefined || candidate.interview_score !== undefined ? 'Backend' : (appreciations.length > 0 ? 'Calc' : 'N/A'),
       },
     ];
   }

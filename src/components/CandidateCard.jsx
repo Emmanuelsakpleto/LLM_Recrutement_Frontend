@@ -39,6 +39,16 @@ const CandidateCard = ({ candidate, onClick, isSelected = false }) => {
   const educationScore = candidate.score_details?.education_score !== undefined && candidate.score_details?.education_score !== null
     ? Number(candidate.score_details.education_score.toFixed(1))
     : 0;
+  const cultureScore = candidate.score_details?.culture_score !== undefined && candidate.score_details?.culture_score !== null
+    ? Number(candidate.score_details.culture_score.toFixed(1))
+    : (candidate.culture_score !== undefined && candidate.culture_score !== null 
+        ? Number(candidate.culture_score.toFixed(1))
+        : 0);
+  const interviewScore = candidate.score_details?.interview_score !== undefined && candidate.score_details?.interview_score !== null
+    ? Number(candidate.score_details.interview_score.toFixed(1))
+    : (candidate.interview_score !== undefined && candidate.interview_score !== null 
+        ? Number(candidate.interview_score.toFixed(1))
+        : 0);
   const finalScore = candidate.score_details?.final_score !== undefined && candidate.score_details?.final_score !== null
     ? Number(candidate.score_details.final_score.toFixed(1))
     : 0;
@@ -88,6 +98,14 @@ const CandidateCard = ({ candidate, onClick, isSelected = false }) => {
         <div className="flex justify-between text-sm">
           <span className="text-gray-600">Formation:</span>
           <span className="font-medium">{educationScore}%</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-600">Culture:</span>
+          <span className="font-medium">{cultureScore}%</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-600">Entretien:</span>
+          <span className="font-medium">{interviewScore}%</span>
         </div>
       </div>
     </Card>
