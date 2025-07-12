@@ -58,16 +58,22 @@ const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({
       
       console.log('Réponse génération questions:', response); // Debug
       
-      if (response.data && response.data.questions) {
-        setInterviewQuestions(response.data.questions);
+      // Les questions sont dans response.data.questions.questions
+      const questions = response.data?.questions?.questions || response.data?.questions;
+      
+      if (questions && Array.isArray(questions)) {
+        setInterviewQuestions(questions);
         setSelectedCandidate(candidateId);
         await loadCandidates(); // Recharger pour mettre à jour le statut
         onStageChange?.(candidateId, 'interview_questions');
+        alert(`✅ ${questions.length} questions générées avec succès !`);
       } else {
         console.error('Données manquantes dans la réponse:', response);
+        alert(`❌ Erreur: ${response.error || 'Structure de données inattendue'}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erreur génération questions:', error);
+      alert(`❌ Erreur génération questions: ${error.message || 'Erreur inconnue'}`);
     } finally {
       setLoading(false);
     }
@@ -81,14 +87,20 @@ const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({
       
       console.log('Réponse récupération questions:', response); // Debug
       
-      if (response.data && response.data.questions) {
-        setInterviewQuestions(response.data.questions);
+      // Les questions peuvent être directement dans data.questions ou imbriquées
+      const questions = response.data?.questions?.questions || response.data?.questions;
+      
+      if (questions && Array.isArray(questions)) {
+        setInterviewQuestions(questions);
         setSelectedCandidate(candidateId);
+        alert(`✅ ${questions.length} questions récupérées !`);
       } else {
-        console.error('Aucune question trouvée pour ce candidat');
+        console.error('Aucune question trouvée pour ce candidat:', response);
+        alert('❌ Aucune question trouvée pour ce candidat');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Erreur récupération questions:', error);
+      alert(`❌ Erreur récupération questions: ${error.message || 'Erreur inconnue'}`);
     } finally {
       setLoading(false);
     }
