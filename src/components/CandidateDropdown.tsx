@@ -8,6 +8,12 @@ interface CandidateDropdownProps {
 }
 
 const CandidateDropdown: React.FC<CandidateDropdownProps> = ({ candidates, selectedCandidateId, onSelect }) => {
+  console.log('🎯 CandidateDropdown reçoit:', {
+    candidatesCount: candidates.length,
+    candidates: candidates.map(c => ({ id: c.id, name: c.name, brief_id: c.brief_id })),
+    selectedCandidateId
+  });
+  
   return (
     <div className="mb-4">
       <label className="block text-gray-700 font-medium mb-1">Sélectionner un CV analysé :</label>

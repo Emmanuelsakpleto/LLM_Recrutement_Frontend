@@ -1,0 +1,285 @@
+import React, { useState, useEffect } from 'react';
+import { candidateService } from '../services/api';
+
+interface CandidateProcessStage {
+  id: number;
+  name: string;
+  status: string;
+  process_stage: string;
+  brief_id: number;
+  skills_score: number;
+  experience_score: number;
+  education_score: number;
+  culture_score: number;
+  interview_score: number;
+  final_predictive_score: number;
+  interview_questions?: any[];
+}
+
+interface CandidateProcessManagerProps {
+  briefId: number;
+  onStageChange?: (candidateId: number, newStage: string) => void;
+}
+
+const CandidateProcessManager: React.FC<CandidateProcessManagerProps> = ({ 
+  briefId, 
+  onStageChange 
+}) => {
+  const [candidates, setCandidates] = useState<CandidateProcessStage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedCandidate, setSelectedCandidate] = useState<number | null>(null);
+  const [interviewQuestions, setInterviewQuestions] = useState<any[]>([]);
+  const [evaluations, setEvaluations] = useState<any[]>([]);
+
+  // Charger les candidats
+  useEffect(() => {
+    loadCandidates();
+  }, [briefId]);
+
+  const loadCandidates = async () => {
+    try {
+      const response = await candidateService.getCandidates();
+      const filteredCandidates = response.data?.filter(
+        (candidate: any) => candidate.brief_id === briefId
+      ) || [];
+      setCandidates(filteredCandidates);
+    } catch (error) {
+      console.error('Erreur chargement candidats:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Générer questions d'entretien
+  const generateInterviewQuestions = async (candidateId: number) => {
+    try {
+      setLoading(true);
+      const response = await fetch(`http://localhost:5000/api/candidates/${candidateId}/generate-interview-questions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('jwt_token')}`
+        }
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setInterviewQuestions(data.questions);
+        setSelectedCandidate(candidateId);
+        await loadCandidates(); // Recharger pour mettre à jour le statut
+        onStageChange?.(candidateId, 'interview_questions');
+      }
+    } catch (error) {
+      console.error('Erreur génération questions:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Évaluer entretien
+  const evaluateInterview = async (candidateId: number, evaluationData: any[]) => {
+    try {
+      setLoading(true);
+      const response = await fetch(`http://localhost:5000/api/candidates/${candidateId}/evaluate-interview`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('jwt_token')}`
+        },
+        body: JSON.stringify({ evaluations: evaluationData })
+      });
+
+      if (response.ok) {
+        await loadCandidates();
+        onStageChange?.(candidateId, 'interview_evaluation');
+      }
+    } catch (error) {
+      console.error('Erreur évaluation entretien:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Finaliser évaluation
+  const finalizeEvaluation = async (candidateId: number) => {
+    try {
+      setLoading(true);
+      const response = await fetch(`http://localhost:5000/api/candidates/${candidateId}/finalize-evaluation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('jwt_token')}`
+        }
+      });
+
+      if (response.ok) {
+        await loadCandidates();
+        onStageChange?.(candidateId, 'final_evaluation');
+      }
+    } catch (error) {
+      console.error('Erreur finalisation:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Composant pour les étapes
+  const ProcessStepIndicator = ({ stage, status }: { stage: string; status: string }) => {
+    const getStageInfo = (stage: string) => {
+      switch (stage) {
+        case 'cv_analysis':
+          return { icon: '📄', label: 'CV Analysé', color: 'bg-blue-100 text-blue-700' };
+        case 'interview_questions':
+          return { icon: '❓', label: 'Questions Générées', color: 'bg-yellow-100 text-yellow-700' };
+        case 'interview_evaluation':
+          return { icon: '✅', label: 'Entretien Évalué', color: 'bg-green-100 text-green-700' };
+        case 'final_evaluation':
+          return { icon: '🏆', label: 'Évaluation Complète', color: 'bg-purple-100 text-purple-700' };
+        default:
+          return { icon: '⏳', label: 'En attente', color: 'bg-gray-100 text-gray-700' };
+      }
+    };
+
+    const stageInfo = getStageInfo(stage);
+    return (
+      <div className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${stageInfo.color}`}>
+        <span className="mr-2">{stageInfo.icon}</span>
+        {stageInfo.label}
+      </div>
+    );
+  };
+
+  // Composant pour les actions
+  const CandidateActions = ({ candidate }: { candidate: CandidateProcessStage }) => {
+    const canGenerateQuestions = candidate.process_stage === 'cv_analysis';
+    const canEvaluate = candidate.process_stage === 'interview_questions';
+    const canFinalize = candidate.process_stage === 'interview_evaluation';
+
+    return (
+      <div className="flex space-x-2">
+        {canGenerateQuestions && (
+          <button
+            onClick={() => generateInterviewQuestions(candidate.id)}
+            className="px-3 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm"
+            disabled={loading}
+          >
+            Générer Questions
+          </button>
+        )}
+        {canEvaluate && (
+          <button
+            onClick={() => setSelectedCandidate(candidate.id)}
+            className="px-3 py-1 bg-yellow-500 text-white rounded hover:bg-yellow-600 text-sm"
+          >
+            Évaluer Entretien
+          </button>
+        )}
+        {canFinalize && (
+          <button
+            onClick={() => finalizeEvaluation(candidate.id)}
+            className="px-3 py-1 bg-green-500 text-white rounded hover:bg-green-600 text-sm"
+            disabled={loading}
+          >
+            Finaliser Évaluation
+          </button>
+        )}
+      </div>
+    );
+  };
+
+  // Composant pour les scores
+  const ScoreDisplay = ({ candidate }: { candidate: CandidateProcessStage }) => {
+    const scores = [
+      { label: 'Compétences', value: candidate.skills_score, color: 'bg-blue-200' },
+      { label: 'Expérience', value: candidate.experience_score, color: 'bg-green-200' },
+      { label: 'Formation', value: candidate.education_score, color: 'bg-purple-200' },
+      { label: 'Culture', value: candidate.culture_score, color: 'bg-yellow-200' },
+      { label: 'Entretien', value: candidate.interview_score, color: 'bg-red-200' }
+    ];
+
+    return (
+      <div className="grid grid-cols-5 gap-2 mt-3">
+        {scores.map((score, index) => (
+          <div key={index} className="text-center">
+            <div className={`${score.color} rounded-lg p-2`}>
+              <div className="text-xs font-medium text-gray-700">{score.label}</div>
+              <div className="text-lg font-bold text-gray-900">
+                {score.value > 0 ? `${score.value.toFixed(1)}%` : '-'}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500 mx-auto"></div>
+          <p className="mt-2 text-gray-600">Chargement des candidats...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-lg shadow-sm border border-gray-200">
+      <div className="p-6 border-b border-gray-200">
+        <h3 className="text-lg font-semibold text-gray-900">
+          Gestion des Candidats - Process de Recrutement
+        </h3>
+        <p className="text-sm text-gray-600 mt-1">
+          Suivez l'avancement de chaque candidat à travers les étapes d'évaluation
+        </p>
+      </div>
+
+      <div className="p-6">
+        {candidates.length === 0 ? (
+          <div className="text-center py-8">
+            <div className="text-gray-400 text-4xl mb-2">👤</div>
+            <p className="text-gray-500">Aucun candidat pour cette fiche de poste</p>
+            <p className="text-sm text-gray-400 mt-1">
+              Uploadez des CV pour commencer le processus d'évaluation
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {candidates.map((candidate) => (
+              <div key={candidate.id} className="border border-gray-200 rounded-lg p-4">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-3">
+                      <h4 className="text-lg font-medium text-gray-900">{candidate.name}</h4>
+                      <ProcessStepIndicator stage={candidate.process_stage} status={candidate.status} />
+                    </div>
+                    
+                    <div className="mt-2 text-sm text-gray-600">
+                      Status: {candidate.status}
+                    </div>
+
+                    {candidate.final_predictive_score > 0 && (
+                      <div className="mt-2">
+                        <div className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-700">
+                          <span className="mr-2">🎯</span>
+                          Score Final: {candidate.final_predictive_score.toFixed(1)}%
+                        </div>
+                      </div>
+                    )}
+
+                    <ScoreDisplay candidate={candidate} />
+                  </div>
+                  
+                  <CandidateActions candidate={candidate} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default CandidateProcessManager;

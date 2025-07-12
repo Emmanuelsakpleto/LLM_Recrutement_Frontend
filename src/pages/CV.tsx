@@ -120,11 +120,24 @@ const CV: React.FC<CVProps> = ({ activeBrief, onBriefChange, briefs, setBriefs, 
           },
           report_summary: response.candidate.report_summary || ''
         });
+        
         // Rafraîchir la liste des candidats si besoin
+        console.log('🔄 Rafraîchissement de la liste des candidats...');
         const candidatesResponse = await candidateService.getCandidates();
+        console.log('📋 Réponse candidats:', candidatesResponse);
+        
         if (candidatesResponse.data) {
+          console.log('👥 Candidats reçus:', candidatesResponse.data.length);
+          console.log('📋 Brief actif:', activeBrief?.id);
+          
           setCandidates(candidatesResponse.data);
+          
+          // Debug: vérifier le filtrage
+          const filtered = filterCandidatesByBrief(candidatesResponse.data, activeBrief);
+          console.log('🎯 Candidats filtrés pour ce brief:', filtered.length);
+          console.log('📋 Candidats filtrés détails:', filtered.map(c => ({ id: c.id, name: c.name, brief_id: c.brief_id })));
         }
+        
         setToast({ message: 'CV analysé avec succès !', type: 'success' });
       } else {
         setToast({ message: response.error || 'Erreur lors de l\'analyse du CV', type: 'error' });
@@ -150,7 +163,16 @@ const CV: React.FC<CVProps> = ({ activeBrief, onBriefChange, briefs, setBriefs, 
   };
 
   // Filtrer les candidats selon le brief actif (mémorisé)
-  const filteredCandidates = React.useMemo(() => filterCandidatesByBrief(candidates, activeBrief), [candidates, activeBrief]);
+  const filteredCandidates = React.useMemo(() => {
+    const filtered = filterCandidatesByBrief(candidates, activeBrief);
+    console.log('🎯 useMemo filteredCandidates:', {
+      totalCandidates: candidates.length,
+      activeBrief: activeBrief?.id,
+      filteredCount: filtered.length,
+      filtered: filtered.map(c => ({ id: c.id, name: c.name, brief_id: c.brief_id }))
+    });
+    return filtered;
+  }, [candidates, activeBrief]);
 
   // Mapping universel des scores pour compatibilité backend
   const mapScores = (raw: any) => {
@@ -236,6 +258,29 @@ const CV: React.FC<CVProps> = ({ activeBrief, onBriefChange, briefs, setBriefs, 
     fetchContexts();
   }, []);
 
+  // Debug function pour tester l'API candidats
+  const debugCandidates = async () => {
+    console.log('🔍 Debug: Test API /candidates');
+    try {
+      const response = await candidateService.getCandidates();
+      console.log('📋 Debug - Réponse brute candidats:', response);
+      console.log('📋 Debug - Candidats data:', response.data);
+      console.log('📋 Debug - Nombre de candidats:', response.data?.length || 0);
+      if (response.data) {
+        response.data.forEach((c, index) => {
+          console.log(`📋 Debug - Candidat ${index}:`, {
+            id: c.id,
+            name: c.name,
+            brief_id: c.brief_id,
+            user_id: c.user_id,
+            status: c.status
+          });
+        });
+      }
+    } catch (error) {
+      console.error('❌ Debug - Erreur API candidats:', error);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 lg:p-8">
@@ -268,6 +313,17 @@ const CV: React.FC<CVProps> = ({ activeBrief, onBriefChange, briefs, setBriefs, 
           selectedCandidateId={selectedCandidateId}
           onSelect={setSelectedCandidateId}
         />
+        
+        {/* Debug button temporaire */}
+        <div className="mb-4">
+          <button 
+            onClick={debugCandidates}
+            className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700 text-sm"
+          >
+            🔍 Debug: Tester API candidats
+          </button>
+        </div>
+        
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Analyse de CV</h1>
           <p className="text-gray-600">Téléchargez un CV pour une analyse automatique des compétences et de l'expérience</p>

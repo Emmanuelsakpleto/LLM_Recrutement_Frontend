@@ -504,6 +504,36 @@ Score final: ${scores.final_score ?? 0}%
       body: JSON.stringify(evaluationData),
     });
   },
+
+  // Nouvelles méthodes pour le processus de recrutement
+  async generateInterviewQuestions(candidateId: number): Promise<ApiResponse<any>> {
+    return apiCall(`/candidates/${candidateId}/generate-interview-questions`, {
+      method: 'POST',
+      headers: TokenManager.getAuthHeaders(),
+    });
+  },
+
+  async evaluateInterview(candidateId: number, evaluations: any[]): Promise<ApiResponse<any>> {
+    return apiCall(`/candidates/${candidateId}/evaluate-interview`, {
+      method: 'POST',
+      headers: TokenManager.getAuthHeaders(),
+      body: JSON.stringify({ evaluations }),
+    });
+  },
+
+  async finalizeEvaluation(candidateId: number): Promise<ApiResponse<any>> {
+    return apiCall(`/candidates/${candidateId}/finalize-evaluation`, {
+      method: 'POST',
+      headers: TokenManager.getAuthHeaders(),
+    });
+  },
+
+  async getCandidateStageInfo(candidateId: number): Promise<ApiResponse<any>> {
+    return apiCall(`/candidates/${candidateId}/stage-info`, {
+      method: 'GET',
+      headers: TokenManager.getAuthHeaders(),
+    });
+  },
 };
 
 // Services pour les CV, contexte, évaluation, candidats (inchangés)
