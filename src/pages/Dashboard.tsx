@@ -82,10 +82,24 @@ const Dashboard: React.FC<DashboardProps> = ({
   const generateRisksAndRecommendations = (candidate: Candidate) => {
     // Utiliser les risques et recommandations générés par l'IA si disponibles
     if (candidate.risks && candidate.recommendations) {
-      return {
-        risks: Array.isArray(candidate.risks) ? candidate.risks : [],
-        recommendations: Array.isArray(candidate.recommendations) ? candidate.recommendations : []
-      };
+      const risks = Array.isArray(candidate.risks) ? candidate.risks : [];
+      
+      // Les recommandations peuvent être un objet ou un array
+      let recommendations = [];
+      if (Array.isArray(candidate.recommendations)) {
+        recommendations = candidate.recommendations;
+      } else if (candidate.recommendations && typeof candidate.recommendations === 'object') {
+        // Si c'est un objet avec une structure {recommendation: "...", actions: [...]}
+        const recObj = candidate.recommendations as any;
+        if (recObj.recommendation) {
+          recommendations.push(recObj.recommendation);
+          if (recObj.actions && Array.isArray(recObj.actions)) {
+            recommendations.push(...recObj.actions);
+          }
+        }
+      }
+      
+      return { risks, recommendations };
     }
 
     // Fallback vers la génération statique si pas de données IA
@@ -432,7 +446,7 @@ const Dashboard: React.FC<DashboardProps> = ({
               
               {/* Liste des candidats avec cases à cocher */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {filteredByBrief.map((candidate) => (
+                {filteredCandidates.map((candidate) => (
                   <div
                     key={candidate.id}
                     className={`p-3 rounded-lg border cursor-pointer transition-all ${
