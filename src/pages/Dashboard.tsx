@@ -80,6 +80,15 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   // Générer des risques et recommandations basés sur les données réelles
   const generateRisksAndRecommendations = (candidate: Candidate) => {
+    // Utiliser les risques et recommandations générés par l'IA si disponibles
+    if (candidate.risks && candidate.recommendations) {
+      return {
+        risks: Array.isArray(candidate.risks) ? candidate.risks : [],
+        recommendations: Array.isArray(candidate.recommendations) ? candidate.recommendations : []
+      };
+    }
+
+    // Fallback vers la génération statique si pas de données IA
     const risks = [];
     const recommendations = [];
 
