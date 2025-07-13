@@ -27,6 +27,9 @@ const CandidateCard = ({ candidate, onClick, isSelected = false }) => {
   const culture = candidate.cv_analysis?.["Culture"] || [];
 
   // Mapping robuste des scores
+  const predictiveScore = typeof candidate.predictive_score === 'number' && !isNaN(candidate.predictive_score)
+    ? Number(candidate.predictive_score.toFixed(1))
+    : null;
   const skillsScore = candidate.score_details?.skills_score !== undefined && candidate.score_details?.skills_score !== null
     ? Number(candidate.score_details.skills_score.toFixed(1))
     : 0;
@@ -36,19 +39,13 @@ const CandidateCard = ({ candidate, onClick, isSelected = false }) => {
   const educationScore = candidate.score_details?.education_score !== undefined && candidate.score_details?.education_score !== null
     ? Number(candidate.score_details.education_score.toFixed(1))
     : 0;
-  const cultureScore = candidate.score_details?.culture_score !== undefined && candidate.score_details?.culture_score !== null
-    ? Number(candidate.score_details.culture_score.toFixed(1))
-    : (candidate.culture_score !== undefined && candidate.culture_score !== null 
-        ? Number(candidate.culture_score.toFixed(1))
-        : 0);
-  const interviewScore = candidate.score_details?.interview_score !== undefined && candidate.score_details?.interview_score !== null
-    ? Number(candidate.score_details.interview_score.toFixed(1))
-    : (candidate.interview_score !== undefined && candidate.interview_score !== null 
-        ? Number(candidate.interview_score.toFixed(1))
-        : 0);
   const finalScore = candidate.score_details?.final_score !== undefined && candidate.score_details?.final_score !== null
     ? Number(candidate.score_details.final_score.toFixed(1))
     : 0;
+
+  // Affichage dynamique du score principal
+  const displayScore = predictiveScore !== null && predictiveScore > 0 ? predictiveScore : finalScore;
+  const scoreLabel = predictiveScore !== null && predictiveScore > 0 ? 'Score prédictif' : 'Score global';
 
   // Radar arrondi à 1 décimale
   const radarData = candidate.radar_data || {};
@@ -71,6 +68,12 @@ const CandidateCard = ({ candidate, onClick, isSelected = false }) => {
             </span>
           </div>
         </div>
+        <div className="text-right">
+          <div className={`text-2xl font-bold ${getScoreColor(displayScore)}`}>
+            {displayScore}%
+          </div>
+          <div className="text-xs text-gray-500">{scoreLabel}</div>
+        </div>
       </div>
       
       <div className="space-y-2">
@@ -85,14 +88,6 @@ const CandidateCard = ({ candidate, onClick, isSelected = false }) => {
         <div className="flex justify-between text-sm">
           <span className="text-gray-600">Formation:</span>
           <span className="font-medium">{educationScore}%</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-600">Culture:</span>
-          <span className="font-medium">{cultureScore}%</span>
-        </div>
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-600">Entretien:</span>
-          <span className="font-medium">{interviewScore}%</span>
         </div>
       </div>
     </Card>

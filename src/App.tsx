@@ -71,36 +71,7 @@ const App: React.FC = () => {
       const candidatesResponse = await candidateService.getCandidates();
       console.log('Réponse de getCandidates:', candidatesResponse);
       if (candidatesResponse.data) {
-        // Parser les données JSON stockées en tant que strings
-        const parsedCandidates = candidatesResponse.data.map((candidate: any) => {
-          try {
-            return {
-              ...candidate,
-              radar_data: typeof candidate.radar_data === 'string' 
-                ? JSON.parse(candidate.radar_data) 
-                : candidate.radar_data,
-              risks: typeof candidate.risks === 'string' 
-                ? JSON.parse(candidate.risks) 
-                : candidate.risks,
-              recommendations: typeof candidate.recommendations === 'string' 
-                ? JSON.parse(candidate.recommendations) 
-                : candidate.recommendations,
-              appreciations: typeof candidate.appreciations === 'string' 
-                ? JSON.parse(candidate.appreciations) 
-                : candidate.appreciations,
-              interview_questions: typeof candidate.interview_questions === 'string' 
-                ? JSON.parse(candidate.interview_questions) 
-                : candidate.interview_questions,
-              score_details: typeof candidate.score_details === 'string' 
-                ? JSON.parse(candidate.score_details) 
-                : candidate.score_details
-            };
-          } catch (e) {
-            console.warn('Erreur de parsing pour le candidat:', candidate.id, e);
-            return candidate;
-          }
-        });
-        setCandidates(parsedCandidates);
+        setCandidates(candidatesResponse.data);
       }
     } catch (error) {
       console.error('Erreur lors du chargement des données:', error);

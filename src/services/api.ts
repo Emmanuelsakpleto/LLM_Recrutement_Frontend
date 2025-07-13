@@ -29,16 +29,12 @@ export interface Candidate {
     skills_score?: number;
     experience_score?: number;
     education_score?: number;
-    culture_score?: number;
-    interview_score?: number;
     // autres propriétés si besoin
   } | null;
   id: number;
   name: string;
   cv_analysis?: CVAnalysis;
   predictive_score?: number;
-  culture_score?: number; // Score de culture calculé par le backend
-  interview_score?: number; // Score d'entretien calculé par le backend
   appreciations?: Appreciation[];
   status: string;
   report_summary?: string; // <-- Ajouté pour corriger l'erreur de typage
@@ -430,14 +426,6 @@ export const cvService = {
 };
 
 export const candidateService = {
-  async getCandidateById(candidateId: number): Promise<ApiResponse<any>> {
-    console.log(`👤 Récupération du candidat ${candidateId}`);
-    return apiCall(`/candidates/${candidateId}`, {
-      method: 'GET',
-      headers: TokenManager.getAuthHeaders(),
-    });
-  },
-
   async getCandidates(): Promise<ApiResponse<Candidate[]>> {
     return apiCall('/candidates');
   },
@@ -511,83 +499,9 @@ Score final: ${scores.final_score ?? 0}%
 
   async submitEvaluation(candidateId: number, evaluationData: any): Promise<ApiResponse<any>> {
     console.log(`📊 Soumission de l'évaluation pour le candidat ${candidateId}`, evaluationData);
-    
-    try {
-      // Étape 1: Évaluer l'entretien (calcul scores culture et entretien)
-      const evaluationResponse = await apiCall(`/candidates/${candidateId}/evaluate-interview`, {
-        method: 'POST',
-        body: JSON.stringify(evaluationData),
-      });
-
-      console.log('📊 Réponse evaluate-interview:', evaluationResponse);
-
-      if (evaluationResponse.error) {
-        return evaluationResponse;
-      }
-
-      // Étape 2: Finaliser l'évaluation (calcul score prédictif final + radar + recommandations)
-      const finalizationResponse = await apiCall(`/candidates/${candidateId}/finalize-evaluation`, {
-        method: 'POST',
-      });
-
-      console.log('📊 Réponse finalize-evaluation:', finalizationResponse);
-
-      if (finalizationResponse.error) {
-        return finalizationResponse;
-      }
-
-      // Étape 3: Récupérer les données complètes en rechargeant tous les candidats
-      const candidatesResponse = await this.getCandidates();
-      
-      console.log('📊 Données candidats après évaluation:', candidatesResponse);
-      
-      const updatedCandidate = candidatesResponse.data?.find((c: any) => c.id === candidateId);
-      
-      return {
-        data: updatedCandidate || {},
-        message: 'Évaluation complétée avec succès'
-      };
-
-    } catch (error) {
-      console.error('Erreur lors de la soumission d\'évaluation:', error);
-      return { error: 'Erreur lors de la soumission d\'évaluation' };
-    }
-  },
-
-  // Nouvelles méthodes pour le processus de recrutement
-  async generateInterviewQuestions(candidateId: number): Promise<ApiResponse<any>> {
-    return apiCall(`/candidates/${candidateId}/generate-interview-questions`, {
+    return apiCall(`/candidates/${candidateId}/evaluate`, {
       method: 'POST',
-      headers: TokenManager.getAuthHeaders(),
-    });
-  },
-
-  async getInterviewQuestions(candidateId: number): Promise<ApiResponse<any>> {
-    return apiCall(`/candidates/${candidateId}/interview-questions`, {
-      method: 'GET',
-      headers: TokenManager.getAuthHeaders(),
-    });
-  },
-
-  async evaluateInterview(candidateId: number, evaluations: any[]): Promise<ApiResponse<any>> {
-    return apiCall(`/candidates/${candidateId}/evaluate-interview`, {
-      method: 'POST',
-      headers: TokenManager.getAuthHeaders(),
-      body: JSON.stringify({ evaluations }),
-    });
-  },
-
-  async finalizeEvaluation(candidateId: number): Promise<ApiResponse<any>> {
-    return apiCall(`/candidates/${candidateId}/finalize-evaluation`, {
-      method: 'POST',
-      headers: TokenManager.getAuthHeaders(),
-    });
-  },
-
-  async getCandidateStageInfo(candidateId: number): Promise<ApiResponse<any>> {
-    return apiCall(`/candidates/${candidateId}/stage-info`, {
-      method: 'GET',
-      headers: TokenManager.getAuthHeaders(),
+      body: JSON.stringify(evaluationData),
     });
   },
 };
@@ -641,11 +555,12 @@ export const contextService = {
     await navigator.clipboard.writeText(text);
     console.log('✅ Questions copiées dans le presse-papiers (texte brut)');
   },
-  // Note: Cette méthode est dépréciée, utilisez candidateService.generateInterviewQuestions() à la place
   async createContext({ values, culture, brief_id, candidate_id }: { values: string[]; culture: string; brief_id: number; candidate_id: number }): Promise<ApiResponse<{ questions: InterviewQuestion[] }>> {
-    console.warn('⚠️ Méthode createContext dépréciée, utilisez candidateService.generateInterviewQuestions() à la place');
-    // Rediriger vers la nouvelle API
-    return candidateService.generateInterviewQuestions(candidate_id);
+    return apiCall('/context/generate-questions', {
+      method: 'POST',
+      body: JSON.stringify({ values, culture, brief_id, candidate_id }),
+      headers: TokenManager.getAuthHeaders(),
+    });
   },
 };
 

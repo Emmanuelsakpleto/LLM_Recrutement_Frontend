@@ -41,21 +41,9 @@ const Interview: React.FC = () => {
       if (candidate && candidate.interview_questions) {
         let qs: InterviewQuestion[] = [];
         if (typeof candidate.interview_questions === 'string') {
-          try { 
-            const parsed = JSON.parse(candidate.interview_questions);
-            // Gérer les structures imbriquées
-            if (parsed.questions && Array.isArray(parsed.questions)) {
-              qs = parsed.questions;
-            } else if (Array.isArray(parsed)) {
-              qs = parsed;
-            }
-          } catch (e) {
-            console.error('Erreur parsing questions candidat:', e);
-          }
+          try { qs = JSON.parse(candidate.interview_questions); } catch {}
         } else if (Array.isArray(candidate.interview_questions)) {
           qs = candidate.interview_questions;
-        } else if (typeof candidate.interview_questions === 'object' && candidate.interview_questions && 'questions' in candidate.interview_questions) {
-          qs = (candidate.interview_questions as { questions: InterviewQuestion[] }).questions;
         }
         setQuestions(qs);
       } else {
@@ -76,107 +64,21 @@ const Interview: React.FC = () => {
       const candidate = candidates.find(c => c.id === selectedCandidateId);
       const brief = briefs.find(b => b.id === selectedBriefId);
       if (!candidate || !brief) throw new Error('Brief ou candidat introuvable');
-      
-      // Appel backend pour générer les questions avec la nouvelle API
-      const response = await candidateService.generateInterviewQuestions(candidate.id);
-      
-      console.log('🔍 Réponse génération questions:', response); // Debug
-      console.log('🔍 response.data:', response.data); // Debug plus détaillé
-      console.log('🔍 response.questions:', response.questions); // Debug structure directe
-      
-      // Extraction plus robuste des questions
-      let questions = null;
-      
-      // Priorité 1: Les données sont directement dans response (pas dans response.data)
-      if (response.questions?.questions && Array.isArray(response.questions.questions)) {
-        questions = response.questions.questions;
-      }
-      // Priorité 2: Les données sont dans response.data (structure normale)
-      else if (response.data?.questions?.questions && Array.isArray(response.data.questions.questions)) {
-        questions = response.data.questions.questions;
-      }
-      // Priorité 3: Questions directement dans response.data.questions
-      else if (response.data?.questions && Array.isArray(response.data.questions)) {
-        questions = response.data.questions;
-      }
-      // Priorité 4: Questions directement dans response.questions (si c'est un array)
-      else if (response.questions && Array.isArray(response.questions)) {
-        questions = response.questions;
-      }
-      
-      console.log('🔍 questions extraites finales:', questions); // Debug final
-      
-      if (questions && Array.isArray(questions)) {
-        setQuestions(questions);
-        setToast({ message: `✅ ${questions.length} questions générées !`, type: 'success' });
-        
-        // Recharger les candidats pour mettre à jour les données locales
-        try {
-          const candidatesResponse = await candidateService.getCandidates();
-          if (candidatesResponse.data) {
-            setCandidates(candidatesResponse.data);
-          }
-        } catch (e) {
-          console.warn('Impossible de recharger les candidats:', e);
-        }
+      // Appel backend pour générer les questions
+      const response = await contextService.createContext({
+        values: brief.skills,
+        culture: brief.description,
+        brief_id: brief.id,
+        candidate_id: candidate.id
+      });
+      if (response.data && response.data.questions) {
+        setQuestions(response.data.questions);
+        setToast({ message: `${response.data.questions.length} questions générées !`, type: 'success' });
       } else {
-        console.error('❌ Impossible d\'extraire les questions');
-        console.error('❌ Structure complète de response:', JSON.stringify(response, null, 2));
-        setToast({ message: 'Impossible d\'extraire les questions de la réponse', type: 'error' });
+        setToast({ message: response.error || 'Erreur lors de la génération', type: 'error' });
       }
-    } catch (e: unknown) {
-      console.error('❌ Erreur génération questions:', e);
-      const errorMessage = e instanceof Error ? e.message : 'Erreur inattendue';
-      setToast({ message: errorMessage, type: 'error' });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Fonction pour rafraîchir les questions existantes
-  const refreshQuestions = async () => {
-    if (!selectedCandidateId) {
-      setToast({ message: 'Veuillez sélectionner un candidat d\'abord', type: 'error' });
-      return;
-    }
-    
-    try {
-      setIsLoading(true);
-      const response = await candidateService.getInterviewQuestions(selectedCandidateId);
-      
-      console.log('🔄 Réponse rafraîchissement questions:', response); // Debug
-      
-      // Même logique d'extraction que pour la génération
-      let questions = null;
-      
-      // Priorité 1: Les données sont directement dans response
-      if (response.questions?.questions && Array.isArray(response.questions.questions)) {
-        questions = response.questions.questions;
-      }
-      // Priorité 2: Les données sont dans response.data
-      else if (response.data?.questions?.questions && Array.isArray(response.data.questions.questions)) {
-        questions = response.data.questions.questions;
-      }
-      // Priorité 3: Questions directement dans response.data.questions
-      else if (response.data?.questions && Array.isArray(response.data.questions)) {
-        questions = response.data.questions;
-      }
-      // Priorité 4: Questions directement dans response.questions
-      else if (response.questions && Array.isArray(response.questions)) {
-        questions = response.questions;
-      }
-      
-      if (questions && Array.isArray(questions)) {
-        setQuestions(questions);
-        setToast({ message: `✅ ${questions.length} questions récupérées !`, type: 'success' });
-      } else {
-        console.error('❌ Aucune question trouvée:', response);
-        setToast({ message: 'Aucune question trouvée pour ce candidat', type: 'error' });
-      }
-    } catch (error: unknown) {
-      console.error('Erreur récupération questions:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Impossible de récupérer les questions';
-      setToast({ message: `Erreur: ${errorMessage}`, type: 'error' });
+    } catch (e: any) {
+      setToast({ message: e.message || 'Erreur inattendue', type: 'error' });
     } finally {
       setIsLoading(false);
     }
@@ -233,27 +135,14 @@ const Interview: React.FC = () => {
             </select>
           </div>
         </div>
-        <div className="flex gap-4 mb-6">
-          <Button variant="primary" onClick={handleGenerateQuestions} loading={isLoading} className="flex-1">
-            Générer les questions
-          </Button>
-          <Button variant="secondary" onClick={refreshQuestions} loading={isLoading} className="flex-1">
-            Rafraîchir les questions
-          </Button>
-        </div>
+        <Button variant="primary" onClick={handleGenerateQuestions} loading={isLoading} className="mb-6">
+          Générer les questions
+        </Button>
         <Card className="p-6">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 gap-2">
             <h2 className="text-xl font-semibold">Questions générées</h2>
             {questions.length > 0 && selectedBriefId && (
               <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={refreshQuestions}
-                  loading={isLoading}
-                  disabled={!selectedCandidateId}
-                >
-                  🔄 Rafraîchir
-                </Button>
                 <Button
                   variant="secondary"
                   onClick={async () => {
@@ -288,19 +177,7 @@ const Interview: React.FC = () => {
               ))}
             </div>
           ) : (
-            <div className="text-center py-8">
-              <p className="text-gray-500 italic mb-4">Aucune question générée pour ce candidat.</p>
-              {selectedCandidateId && (
-                <Button
-                  variant="outline"
-                  onClick={refreshQuestions}
-                  loading={isLoading}
-                  className="mx-auto"
-                >
-                  🔄 Vérifier les questions existantes
-                </Button>
-              )}
-            </div>
+            <p className="text-gray-500 italic">Aucune question générée pour ce candidat.</p>
           )}
         </Card>
         {toast && (
