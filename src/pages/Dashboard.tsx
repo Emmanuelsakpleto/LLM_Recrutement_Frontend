@@ -4,8 +4,8 @@ import RadarChart from '../components/RadarChart';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import BriefSelector from '../components/BriefSelector';
-import ContextSelector, { CompanyContextType } from '../components/ContextSelector';
-import { candidateService, JobBrief, Candidate, companyContextService } from '../services/api';
+import ContextSelector from '../components/ContextSelector';
+import { candidateService, JobBrief, Candidate, companyContextService, CompanyContextType } from '../services/api';
 import { filterCandidatesByBrief } from '../lib/utils';
 import { useCompanyContext } from '../context/CompanyContext';
 import { useNavigate } from 'react-router-dom';
@@ -32,6 +32,9 @@ const Dashboard: React.FC<DashboardProps> = ({
   const [selectedCandidate, setSelectedCandidate] = useState<Candidate | null>(null);
   const [filter, setFilter] = useState('all');
   const [contexts, setContexts] = useState<CompanyContextType[]>([]);
+  const [showComparison, setShowComparison] = useState(false);
+  const [selectedForComparison, setSelectedForComparison] = useState<Set<number>>(new Set());
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const radarRef = useRef<any>(null);
 
   const filteredByBrief = filterCandidatesByBrief(candidates, activeBrief);
@@ -39,6 +42,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   // Sélectionner le premier candidat du brief actif par défaut
   useEffect(() => {
     if (filteredByBrief.length > 0 && !selectedCandidate) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setSelectedCandidate(filteredByBrief[0]);
     }
   }, [filteredByBrief, selectedCandidate]);
@@ -50,6 +54,16 @@ const Dashboard: React.FC<DashboardProps> = ({
     if (filter === 'evaluation') return candidate.status === 'En évaluation';
     return true;
   });
+
+  const COLORS = [
+    '#3b82f6', // bleu
+    '#ef4444', // rouge
+    '#10b981', // vert
+    '#f59e42', // orange
+    '#a855f7', // violet
+    '#6366f1', // indigo
+    '#f43f5e', // rose
+  ];
 
   // Créer des données radar basées sur les données réelles du candidat
   const createRadarData = (candidate: Candidate) => {
@@ -68,6 +82,29 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   // Générer des risques et recommandations basés sur les données réelles
   const generateRisksAndRecommendations = (candidate: Candidate) => {
+    // Utiliser les risques et recommandations générés par l'IA si disponibles
+    if (candidate.risks && candidate.recommendations) {
+      const risks = Array.isArray(candidate.risks) ? candidate.risks : [];
+      
+      // Les recommandations peuvent être un objet ou un array
+      let recommendations = [];
+      if (Array.isArray(candidate.recommendations)) {
+        recommendations = candidate.recommendations;
+      } else if (candidate.recommendations && typeof candidate.recommendations === 'object') {
+        // Si c'est un objet avec une structure {recommendation: "...", actions: [...]}
+        const recObj = candidate.recommendations as any;
+        if (recObj.recommendation) {
+          recommendations.push(recObj.recommendation);
+          if (recObj.actions && Array.isArray(recObj.actions)) {
+            recommendations.push(...recObj.actions);
+          }
+        }
+      }
+      
+      return { risks, recommendations };
+    }
+
+    // Fallback vers la génération statique si pas de données IA
     const risks = [];
     const recommendations = [];
 
@@ -90,58 +127,79 @@ const Dashboard: React.FC<DashboardProps> = ({
   };
 
   // Préparation des datasets pour le radar comparatif multi-candidats
-  const COLORS = [
-    '#3b82f6', '#ef4444', '#10b981', '#f59e42', '#a855f7', '#6366f1', '#f43f5e'
-  ];
   const evaluatedCandidates = filteredByBrief.filter(c => ['En évaluation', 'Recommandé'].includes(c.status));
-  const radarDatasets = evaluatedCandidates.map((c, i) => {
-    const ca: any = c.cv_analysis || {};
-    const cand: any = c; // pour appreciations
-    return {
-      name: c.name,
-      color: COLORS[i % COLORS.length],
-      values: {
-        'Compétences': ca.score !== undefined ? Number(Number(ca.score).toFixed(1)) : 0,
-        'Expérience': ca.experience && Array.isArray(ca.experience) ? Number(Math.min(ca.experience.length * 20, 100).toFixed(1)) : 0,
-        'Formation': ca.education && Array.isArray(ca.education) ? Number(Math.min(ca.education.length * 25, 100).toFixed(1)) : 0,
-        'Culture': c.predictive_score !== undefined && c.predictive_score !== null ? Number(Number(c.predictive_score).toFixed(1)) : 0,
-        'Entretien': cand.appreciations && cand.appreciations.length > 0
-          ? Number((cand.appreciations.reduce((acc: number, app: any) => acc + app.score, 0) / cand.appreciations.length * 25).toFixed(1))
-          : 0
-      }
-    };
-  });
 
-  // Fonction utilitaire locale pour afficher le score principal du candidat
-  function getDisplayScore(candidate: Candidate): { displayScore: number; scoreLabel: string } {
-    // Priorité : score RH > score prédictif > score analyse CV
-    if (Array.isArray(candidate.appreciations) && candidate.appreciations.length > 0) {
-      // Score RH (moyenne des appréciations)
-      const avg = candidate.appreciations.reduce((acc, app) => acc + (typeof app.score === 'number' && !isNaN(app.score) ? app.score : 0), 0) / candidate.appreciations.length;
-      return { displayScore: Math.round(avg * 25 * 10) / 10, scoreLabel: 'Score RH' };
-    }
-    if (typeof candidate.predictive_score === 'number' && !isNaN(candidate.predictive_score)) {
-      return { displayScore: Math.round(candidate.predictive_score * 10) / 10, scoreLabel: 'Score prédictif' };
-    }
-    if (candidate.cv_analysis && typeof candidate.cv_analysis.score === 'number' && !isNaN(candidate.cv_analysis.score)) {
-      return { displayScore: Math.round(candidate.cv_analysis.score * 10) / 10, scoreLabel: 'Score analyse CV' };
-    }
-    return { displayScore: 0, scoreLabel: 'Score' };
-  }
+  // Fonction pour normaliser un score (gérer les cas 0-1 et 0-100)
+  const normalizeScore = (score: number): number => {
+    if (score === null || score === undefined || isNaN(score)) return 0;
+    // Si le score est entre 0 et 1, on le convertit en pourcentage
+    if (score <= 1) return Number((score * 100).toFixed(1));
+    // Si le score est déjà en pourcentage (0-100), on le garde tel quel
+    return Number(score.toFixed(1));
+  };
 
-  // Remplacer la génération du radarData par les données backend si présentes
+  // Fonction pour obtenir les données radar d'un candidat avec priorité aux champs de base de données
   const getRadarDataFromBackend = (candidate: Candidate) => {
+    // Utiliser exactement la même logique que CandidateCard pour garantir la cohérence
+    const cand: any = candidate;
+    
+    // Priorité aux champs directs de la base de données avec normalisation
+    const skillsScore = cand.skills_score !== undefined && cand.skills_score !== null
+      ? normalizeScore(cand.skills_score)
+      : (cand.score_details?.skills_score !== undefined ? normalizeScore(cand.score_details.skills_score) : 0);
+      
+    const experienceScore = cand.experience_score !== undefined && cand.experience_score !== null
+      ? normalizeScore(cand.experience_score)
+      : (cand.score_details?.experience_score !== undefined ? normalizeScore(cand.score_details.experience_score) : 0);
+      
+    const educationScore = cand.education_score !== undefined && cand.education_score !== null
+      ? normalizeScore(cand.education_score)
+      : (cand.score_details?.education_score !== undefined ? normalizeScore(cand.score_details.education_score) : 0);
+      
+    const cultureScore = cand.culture_score !== undefined && cand.culture_score !== null
+      ? normalizeScore(cand.culture_score)
+      : (cand.radar_data?.Culture !== undefined ? normalizeScore(cand.radar_data.Culture) : 0);
+      
+    const interviewScore = cand.interview_score !== undefined && cand.interview_score !== null
+      ? normalizeScore(cand.interview_score)
+      : (cand.radar_data?.Entretien !== undefined ? normalizeScore(cand.radar_data.Entretien) : 0);
+
+    // Debug pour voir les vraies valeurs
+    console.log(`Radar data for ${candidate.name}:`, {
+      skillsScore, experienceScore, educationScore, cultureScore, interviewScore,
+      raw: { 
+        skills: cand.skills_score, 
+        experience: cand.experience_score, 
+        education: cand.education_score,
+        culture: cand.culture_score,
+        interview: cand.interview_score
+      }
+    });
+
+    // Si on a au moins un score de base de données
+    if (skillsScore > 0 || experienceScore > 0 || educationScore > 0 || cultureScore > 0 || interviewScore > 0) {
+      return {
+        'Compétences': skillsScore,
+        'Expérience': experienceScore,
+        'Formation': educationScore,
+        'Culture': cultureScore,
+        'Entretien': interviewScore
+      };
+    }
+    
+    // Fallback : utiliser radar_data si aucun score direct n'est disponible
     if (candidate && candidate.radar_data) {
       const radar = candidate.radar_data;
       return {
-        'Compétences': typeof radar['Compétences'] === 'number' ? Number(radar['Compétences'].toFixed(1)) : 0,
-        'Expérience': typeof radar['Expérience'] === 'number' ? Number(radar['Expérience'].toFixed(1)) : 0,
-        'Formation': typeof radar['Formation'] === 'number' ? Number(radar['Formation'].toFixed(1)) : 0,
-        'Culture': typeof radar['Culture'] === 'number' ? Number(radar['Culture'].toFixed(1)) : 0,
-        'Entretien': typeof radar['Entretien'] === 'number' ? Number(radar['Entretien'].toFixed(1)) : 0
+        'Compétences': typeof radar['Compétences'] === 'number' ? normalizeScore(radar['Compétences']) : 0,
+        'Expérience': typeof radar['Expérience'] === 'number' ? normalizeScore(radar['Expérience']) : 0,
+        'Formation': typeof radar['Formation'] === 'number' ? normalizeScore(radar['Formation']) : 0,
+        'Culture': typeof radar['Culture'] === 'number' ? normalizeScore(radar['Culture']) : 0,
+        'Entretien': typeof radar['Entretien'] === 'number' ? normalizeScore(radar['Entretien']) : 0
       };
     }
-    // Fallback : ancienne logique locale
+    
+    // Dernier fallback : ancienne logique locale avec conversion pour cohérence
     const ca: any = candidate.cv_analysis || {};
     const appreciations = Array.isArray(candidate.appreciations) ? candidate.appreciations : [];
     return {
@@ -152,6 +210,58 @@ const Dashboard: React.FC<DashboardProps> = ({
       'Entretien': appreciations.length > 0 ? Number((appreciations.reduce((acc: number, app: any) => acc + (typeof app.score === 'number' ? app.score : 0), 0) / appreciations.length * 25).toFixed(1)) : 0
     };
   };
+
+  const radarDatasets = evaluatedCandidates.map((c, i) => {
+    return {
+      name: c.name,
+      color: COLORS[i % COLORS.length],
+      values: getRadarDataFromBackend(c)
+    };
+  });
+
+  // Fonction utilitaire locale pour afficher le score principal du candidat
+  function getDisplayScore(candidate: Candidate): { displayScore: number; scoreLabel: string } {
+    // Priorité : score prédictif > score analyse CV > score RH
+    if (typeof candidate.predictive_score === 'number' && !isNaN(candidate.predictive_score)) {
+      return { displayScore: Math.round(candidate.predictive_score * 10) / 10, scoreLabel: 'Score prédictif' };
+    }
+    if (candidate.cv_analysis && typeof candidate.cv_analysis.score === 'number' && !isNaN(candidate.cv_analysis.score)) {
+      return { displayScore: Math.round(candidate.cv_analysis.score * 10) / 10, scoreLabel: 'Score analyse CV' };
+    }
+    if (Array.isArray(candidate.appreciations) && candidate.appreciations.length > 0) {
+      // Score RH (moyenne des appréciations)
+      const avg = candidate.appreciations.reduce((acc, app) => acc + (typeof app.score === 'number' && !isNaN(app.score) ? app.score : 0), 0) / candidate.appreciations.length;
+      return { displayScore: Math.round(avg * 25 * 10) / 10, scoreLabel: 'Score RH' };
+    }
+    return { displayScore: 0, scoreLabel: 'Score' };
+  }
+
+  // Fonctions pour la comparaison
+  const toggleCandidateComparison = (candidateId: number) => {
+    const newSelected = new Set(selectedForComparison);
+    if (newSelected.has(candidateId)) {
+      newSelected.delete(candidateId);
+    } else if (newSelected.size < 5) { // Limite à 5 candidats pour la lisibilité
+      newSelected.add(candidateId);
+    }
+    setSelectedForComparison(newSelected);
+  };
+
+  const clearComparison = () => {
+    setSelectedForComparison(new Set());
+  };
+
+  // Données pour le radar comparatif
+  const comparisonRadarData = Array.from(selectedForComparison).map((candidateId, index) => {
+    const candidate = candidates.find(c => c.id === candidateId);
+    if (!candidate) return null;
+    
+    return {
+      name: candidate.name,
+      color: COLORS[index % COLORS.length],
+      values: getRadarDataFromBackend(candidate)
+    };
+  }).filter(Boolean);
 
   // Handler export PDF rapport individuel
   const handleExportReport = async () => {
@@ -189,7 +299,7 @@ const Dashboard: React.FC<DashboardProps> = ({
     }
     y += 4;
     doc.text('Scores radar :', 10, y); y += 7;
-    // Ajout : export du radar chart en image
+    // Ajout : export du radar chart en image
     if (radarRef.current && radarRef.current.getImageBase64) {
       const imgData = radarRef.current.getImageBase64();
       if (imgData) {
@@ -208,7 +318,7 @@ const Dashboard: React.FC<DashboardProps> = ({
       doc.text('Aucun risque identifié', 12, y); y += 7;
     }
     y += 4;
-    doc.text('Recommandations d’onboarding :', 10, y); y += 7;
+    doc.text('Recommandations d\'onboarding :', 10, y); y += 7;
     if (Array.isArray(selectedCandidate.recommendations) && selectedCandidate.recommendations.length > 0) {
       selectedCandidate.recommendations.forEach((rec: any) => {
         doc.text(`- ${rec}`, 12, y); y += 7;
@@ -227,9 +337,14 @@ const Dashboard: React.FC<DashboardProps> = ({
 
   // Charger dynamiquement les contextes d'entreprise
   const fetchContexts = async () => {
-    const res = await companyContextService.getContexts();
-    if (res.data) setContexts(res.data);
+    try {
+      const res = await companyContextService.getContexts();
+      if (res.data) setContexts(res.data);
+    } catch (error) {
+      console.error('Erreur lors du chargement des contextes:', error);
+    }
   };
+
   useEffect(() => {
     fetchContexts();
   }, []);
@@ -237,48 +352,69 @@ const Dashboard: React.FC<DashboardProps> = ({
   // Fonction utilitaire pour obtenir les 5 scores détaillés avec provenance
   function getDetailedScores(candidate: Candidate) {
     const ca: any = candidate.cv_analysis || {};
-    const radarData = candidate.radar_data || {};
+    const cand: any = candidate;
+    const scoreDetails = cand.score_details || {};
     const appreciations = Array.isArray(candidate.appreciations) ? candidate.appreciations : [];
+    
     return [
       {
         label: 'Compétences',
-        value: typeof ca.score === 'number' ? Number(ca.score.toFixed(1)) : 0,
-        provenance: ca.score !== undefined ? 'CV' : 'N/A',
+        value: typeof scoreDetails.skills_score === 'number' 
+          ? normalizeScore(scoreDetails.skills_score)
+          : (typeof ca.score === 'number' ? Number(ca.score.toFixed(1)) : 0),
+        provenance: scoreDetails.skills_score !== undefined ? 'Backend' : (ca.score !== undefined ? 'CV' : 'N/A'),
       },
       {
         label: 'Expérience',
-        value: Array.isArray(ca.experience) ? Number(Math.min(ca.experience.length * 20, 100).toFixed(1)) : 0,
-        provenance: Array.isArray(ca.experience) ? 'CV' : 'N/A',
+        value: typeof scoreDetails.experience_score === 'number'
+          ? normalizeScore(scoreDetails.experience_score)
+          : (Array.isArray(ca.experience) ? Number(Math.min(ca.experience.length * 20, 100).toFixed(1)) : 0),
+        provenance: scoreDetails.experience_score !== undefined ? 'Backend' : (Array.isArray(ca.experience) ? 'CV' : 'N/A'),
       },
       {
         label: 'Formation',
-        value: Array.isArray(ca.education) ? Number(Math.min(ca.education.length * 25, 100).toFixed(1)) : 0,
-        provenance: Array.isArray(ca.education) ? 'CV' : 'N/A',
-      },
-      {
-        label: 'Entretien',
-        value: typeof radarData['Entretien'] === 'number'
-          ? Number(radarData['Entretien'].toFixed(1))
-          : (appreciations.length > 0
-              ? Number((appreciations.reduce((acc: number, app: any) => acc + (typeof app.score === 'number' ? app.score : 0), 0) / appreciations.length * 25).toFixed(1))
-              : 0),
-        provenance: typeof radarData['Entretien'] === 'number' ? 'Backend' : (appreciations.length > 0 ? 'CV' : 'N/A'),
+        value: typeof scoreDetails.education_score === 'number'
+          ? normalizeScore(scoreDetails.education_score)
+          : (Array.isArray(ca.education) ? Number(Math.min(ca.education.length * 25, 100).toFixed(1)) : 0),
+        provenance: scoreDetails.education_score !== undefined ? 'Backend' : (Array.isArray(ca.education) ? 'CV' : 'N/A'),
       },
       {
         label: 'Culture',
-        value: typeof radarData['Culture'] === 'number'
-          ? Number(radarData['Culture'].toFixed(1))
+        value: typeof scoreDetails.culture_score === 'number'
+          ? normalizeScore(scoreDetails.culture_score)
           : (typeof candidate.predictive_score === 'number' ? Number(candidate.predictive_score.toFixed(1)) : 0),
-        provenance: typeof radarData['Culture'] === 'number' ? 'Backend' : (typeof candidate.predictive_score === 'number' ? 'CV' : 'N/A'),
+        provenance: scoreDetails.culture_score !== undefined ? 'Backend' : (typeof candidate.predictive_score === 'number' ? 'CV' : 'N/A'),
+      },
+      {
+        label: 'Entretien',
+        value: typeof scoreDetails.interview_score === 'number'
+          ? normalizeScore(scoreDetails.interview_score)
+          : (appreciations.length > 0
+              ? Number((appreciations.reduce((acc: number, app: any) => acc + (typeof app.score === 'number' ? app.score : 0), 0) / appreciations.length * 25).toFixed(1))
+              : 0),
+        provenance: scoreDetails.interview_score !== undefined ? 'Backend' : (appreciations.length > 0 ? 'Calc' : 'N/A'),
       },
     ];
   }
+
+  const handleCandidateClick = (candidate: Candidate) => {
+    setSelectedCandidate(candidate);
+  };
+
+  const handleContextChange = (context: CompanyContextType | null) => {
+    if (!context) return;
+    navigate('/context', { state: { context } });
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 lg:p-8">
       <div className="max-w-7xl mx-auto">
         {/* Sélecteur de contexte d'entreprise en tout premier */}
-        <ContextSelector contexts={contexts} onContextsChange={fetchContexts} />
+        <ContextSelector 
+          contexts={contexts} 
+          onContextsChange={fetchContexts}
+        />
+        
         {/* Affichage du contexte actif juste après */}
         {companyContext && (
           <div className="mb-4 p-3 bg-blue-50 text-blue-900 rounded border border-blue-200 text-sm">
@@ -287,12 +423,14 @@ const Dashboard: React.FC<DashboardProps> = ({
             <span className="text-xs text-blue-700">Culture : {companyContext.culture}</span>
           </div>
         )}
+        
         {/* Avertissement si aucun contexte sélectionné */}
         {!companyContext && (
           <div className="mb-4 p-3 bg-yellow-100 text-yellow-800 rounded border border-yellow-300 text-sm">
             ⚠️ Aucun contexte d'entreprise sélectionné. Certaines fonctionnalités peuvent être limitées.
           </div>
         )}
+        
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Dashboard RH</h1>
@@ -305,10 +443,109 @@ const Dashboard: React.FC<DashboardProps> = ({
           briefs={briefs}
         />
 
+        {/* Section de comparaison interactive */}
+        <Card className="p-6 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold text-gray-900 flex items-center">
+              <span className="mr-2">📊</span>
+              Comparaison interactive des candidats
+            </h2>
+            <div className="flex items-center space-x-3">
+              <Button
+                variant={showComparison ? 'primary' : 'outline'}
+                size="sm"
+                onClick={() => setShowComparison(!showComparison)}
+              >
+                {showComparison ? 'Masquer' : 'Afficher'} la comparaison
+              </Button>
+              {selectedForComparison.size > 0 && (
+                <Button variant="ghost" size="sm" onClick={clearComparison}>
+                  Effacer ({selectedForComparison.size})
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {showComparison && (
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">
+                Sélectionnez jusqu'à 5 candidats pour les comparer sur le radar. 
+                Candidats sélectionnés : {selectedForComparison.size}/5
+              </p>
+              
+              {/* Liste des candidats avec cases à cocher */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                {filteredCandidates.map((candidate) => (
+                  <div
+                    key={candidate.id}
+                    onClick={() => toggleCandidateComparison(candidate.id)}
+                    className={`p-3 border rounded-lg cursor-pointer transition-all ${
+                      selectedForComparison.has(candidate.id) 
+                        ? 'border-blue-500 bg-blue-50' 
+                        : 'border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedForComparison.has(candidate.id)}
+                        onChange={() => {}}
+                        className="w-4 h-4 text-blue-600"
+                      />
+                      <span className="font-medium">{candidate.name}</span>
+                      <span className="text-sm text-gray-500">({candidate.status})</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Radar comparatif */}
+              {comparisonRadarData.length >= 2 && (
+                <div className="mt-6">
+                  <RadarChart 
+                    data={comparisonRadarData}
+                    axes={['Compétences', 'Expérience', 'Formation', 'Culture', 'Entretien']}
+                    size={400}
+                  />
+                </div>
+              )}
+
+              {comparisonRadarData.length === 1 && (
+                <div className="mt-6 p-4 bg-gray-50 rounded-lg text-center">
+                  <p className="text-gray-600">Sélectionnez au moins 2 candidats pour voir la comparaison</p>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+
         {/* Section radar comparatif multi-candidats */}
         {radarDatasets.length > 1 && (
           <div className="mb-10">
-            <RadarChart data={radarDatasets} title="Comparatif multi-candidats (évalués pour ce brief)" />
+            <Card className="p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-4">
+                Comparatif multi-candidats (évalués pour ce brief)
+              </h2>
+              <RadarChart 
+                data={radarDatasets} 
+                axes={['Compétences', 'Expérience', 'Formation', 'Culture', 'Entretien']}
+                size={400}
+              />
+              <div className="mt-4">
+                <h4 className="font-medium text-gray-700 mb-2">Légende :</h4>
+                <div className="flex flex-wrap gap-4">
+                  {radarDatasets.map((dataset, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <div 
+                        className="w-4 h-4 rounded-full" 
+                        style={{ backgroundColor: dataset.color }}
+                      ></div>
+                      <span className="text-sm text-gray-600">{dataset.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </Card>
           </div>
         )}
 
@@ -355,12 +592,16 @@ const Dashboard: React.FC<DashboardProps> = ({
             <div className="space-y-4">
               {filteredCandidates.length > 0 ? (
                 filteredCandidates.map((candidate) => (
-                  <CandidateCard
+                  <div 
                     key={candidate.id}
-                    candidate={candidate}
-                    onClick={() => setSelectedCandidate(candidate)}
-                    isSelected={selectedCandidate?.id === candidate.id}
-                  />
+                    onClick={() => handleCandidateClick(candidate)}
+                    className={`cursor-pointer transition-all duration-200 ${selectedCandidate?.id === candidate.id ? 'ring-2 ring-blue-500' : ''}`}
+                  >
+                    <CandidateCard 
+                      candidate={candidate}
+                      isSelected={selectedCandidate?.id === candidate.id}
+                    />
+                  </div>
                 ))
               ) : (
                 <Card className="p-6 text-center">
@@ -378,137 +619,117 @@ const Dashboard: React.FC<DashboardProps> = ({
               <div className="space-y-6">
                 {/* Header */}
                 <Card className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div>
-                      
-                      <p className="text-gray-600 mt-2">
-                        {(() => {
-                          const { displayScore, scoreLabel } = getDisplayScore && selectedCandidate ? getDisplayScore(selectedCandidate) : { displayScore: 0, scoreLabel: 'Score' };
-                          return (
-                            <>
-                              {scoreLabel}: <span className="font-semibold text-blue-600">{displayScore}%</span>
-                            </>
-                          );
-                        })()}
-                      </p>
-                    </div>
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                      selectedCandidate.status === 'Recommandé' ? 'bg-green-100 text-green-800' :
-                      selectedCandidate.status === 'En évaluation' ? 'bg-yellow-100 text-yellow-800' :
-                      'bg-red-100 text-red-800'
-                    }`}>
-                      {selectedCandidate.status}
-                    </span>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-xl font-semibold text-gray-900">{selectedCandidate.name}</h3>
+                    <Button variant="outline" size="sm" onClick={handleExportReport}>
+                      📄 Exporter PDF
+                    </Button>
+                  </div>
+                  
+                  {/* Scores détaillés */}
+                  <div className="grid grid-cols-5 gap-4 mb-4">
+                    {getDetailedScores(selectedCandidate).map((score, index) => (
+                      <div key={index} className="text-center">
+                        <div className="text-2xl font-bold text-blue-600">
+                          {score.value}
+                        </div>
+                        <div className="text-xs text-gray-500">{score.label}</div>
+                        <div className="text-xs text-gray-400">({score.provenance})</div>
+                      </div>
+                    ))}
                   </div>
                 </Card>
 
                 {/* Radar Chart */}
-                {(() => {
-                  // Radar chart : même logique que la card, provenance harmonisée
-                  const axes = ['Compétences', 'Expérience', 'Formation', 'Entretien', 'Culture'];
-                  const values = getDetailedScores(selectedCandidate).reduce((acc, { label, value }) => {
-                    acc[label] = value;
-                    return acc;
-                  }, {} as Record<string, number>);
-                  const safeRadarData = [{ name: selectedCandidate?.name || 'Candidat', values, color: '#3b82f6' }];
-                  return (
-                    <RadarChart 
-                      ref={radarRef}
-                      data={safeRadarData}
-                      title="Profil de Compétences (5 axes)"
-                      axes={axes}
-                      polygon={true}
-                    />
-                  );
-                })()}
+                <Card className="p-6">
+                  <h3 className="text-lg font-semibold mb-4">Profil Radar - {selectedCandidate.name}</h3>
+                  {(() => {
+                    // Radar chart : utiliser la même logique que les cartes et le radar comparatif
+                    const axes = ['Compétences', 'Expérience', 'Formation', 'Culture', 'Entretien'];
+                    
+                    // Utiliser la même fonction getRadarDataFromBackend pour cohérence
+                    const radarValues = getRadarDataFromBackend(selectedCandidate);
+                    
+                    const data = {
+                      name: selectedCandidate.name,
+                      color: '#3b82f6',
+                      values: radarValues
+                    };
+
+                    console.log('Radar Data for', selectedCandidate.name, ':', data);
+
+                    return (
+                      <RadarChart
+                        ref={radarRef}
+                        data={[data]}
+                        axes={axes}
+                        size={300}
+                      />
+                    );
+                  })()}
+                </Card>
 
                 {/* Risks & Recommendations robustes */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Risks */}
-                  <Card className="p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                      <span className="mr-2">⚠️</span>
-                      Risques Identifiés
-                    </h3>
-                    <div className="space-y-2">
-                      {Array.isArray(selectedCandidate.risks) && selectedCandidate.risks.length > 0 ? (
-                        selectedCandidate.risks.map((risk, index) =>
-                          risk == null ? null : (
-                            <div key={index} className="flex items-start space-x-2">
-                              <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
-                              <span className="text-sm text-gray-700">{
-                                (() => {
-                                  if (risk == null) return '';
-                                  const safeRisk = risk;
-                                  if (typeof safeRisk === 'object' && 'description' in safeRisk && (safeRisk as any).description != null) {
-                                    return String((safeRisk as any).description!);
-                                  }
-                                  return String(safeRisk!);
-                                })()
-                              }</span>
-                            </div>
-                          )
-                        )
-                      ) : generateRisksAndRecommendations(selectedCandidate).risks.length > 0 ? (
-                        generateRisksAndRecommendations(selectedCandidate).risks.map((risk, index) =>
-                          risk == null ? null : (
-                            <div key={index} className="flex items-start space-x-2">
-                              <div className="w-2 h-2 bg-red-500 rounded-full mt-2 flex-shrink-0"></div>
-                              <span className="text-sm text-gray-700">{
-                                (() => {
-                                  if (risk == null) return '';
-                                  const safeRisk = risk;
-                                  if (typeof safeRisk === 'object' && 'description' in safeRisk && safeRisk.description != null) {
-                                    return String(safeRisk.description);
-                                  }
-                                  return String(safeRisk);
-                                })()
-                              }</span>
-                            </div>
-                          )
-                        )
-                      ) : (
-                        <span className="text-sm text-gray-400">Aucun risque identifié</span>
-                      )}
-                    </div>
-                  </Card>
+                  {(() => {
+                    const { risks, recommendations } = generateRisksAndRecommendations(selectedCandidate);
+                    
+                    return (
+                      <>
+                        {risks.length > 0 && (
+                          <Card className="p-6">
+                            <h3 className="text-lg font-semibold mb-3 text-red-700">Risques identifiés</h3>
+                            <ul className="space-y-2">
+                              {risks.map((risk, index) => (
+                                <li key={index} className="flex items-start gap-2">
+                                  <span className="text-red-500 mt-1">⚠️</span>
+                                  <span className="text-sm text-gray-700">{risk}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </Card>
+                        )}
 
-                  {/* Recommendations */}
-                  <Card className="p-6">
-                    <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
-                      <span className="mr-2">💡</span>
-                      Recommandations
-                    </h3>
-                    <div className="space-y-2">
-                      {Array.isArray(selectedCandidate.recommendations) && selectedCandidate.recommendations.length > 0 ? (
-                        selectedCandidate.recommendations.map((rec, index) => (
-                          <div key={index} className="flex items-start space-x-2">
-                            <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-                            <span className="text-sm text-gray-700">{typeof rec === 'object' && rec !== null ? rec.description : rec}</span>
-                          </div>
-                        ))
-                      ) : generateRisksAndRecommendations(selectedCandidate).recommendations.length > 0 ? (
-                        generateRisksAndRecommendations(selectedCandidate).recommendations.map((rec, index) => (
-                          <div key={index} className="flex items-start space-x-2">
-                            <div className="w-2 h-2 bg-green-500 rounded-full mt-2 flex-shrink-0"></div>
-                            <span className="text-sm text-gray-700">{typeof rec === 'object' && rec !== null ? rec.description : rec}</span>
-                          </div>
-                        ))
-                      ) : (
-                        <span className="text-sm text-gray-400">Aucune recommandation</span>
-                      )}
-                    </div>
-                  </Card>
+                        {recommendations.length > 0 && (
+                          <Card className="p-6">
+                            <h3 className="text-lg font-semibold mb-3 text-green-700">Recommandations</h3>
+                            <ul className="space-y-2">
+                              {recommendations.map((rec, index) => (
+                                <li key={index} className="flex items-start gap-2">
+                                  <span className="text-green-500 mt-1">💡</span>
+                                  <span className="text-sm text-gray-700">{rec}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </Card>
+                        )}
+                      </>
+                    );
+                  })()}
                 </div>
 
                 {/* Actions */}
                 <Card className="p-6">
-                  <h3 className="text-lg font-semibold text-gray-900 mb-4">Actions</h3>
-                  <div className="flex flex-wrap gap-3">
-                    <Button variant="primary">Valider le candidat</Button>
-                    <Button variant="secondary">Replanifier entretien</Button>
-                    <Button variant="outline" onClick={handleExportReport}>Exporter le rapport</Button>
-                    <Button variant="ghost">Ajouter des notes</Button>
+                  <h3 className="text-lg font-semibold mb-4">Actions</h3>
+                  <div className="flex gap-3">
+                    <Button 
+                      variant="primary"
+                      onClick={() => navigate(`/evaluation/${selectedCandidate.id}`)}
+                    >
+                      Évaluer le candidat
+                    </Button>
+                    <Button 
+                      variant="secondary"
+                      onClick={() => navigate(`/interview/${selectedCandidate.id}`)}
+                    >
+                      Programmer un entretien
+                    </Button>
+                    <Button 
+                      variant="outline"
+                      onClick={() => navigate(`/cv/${selectedCandidate.id}`)}
+                    >
+                      Voir le CV détaillé
+                    </Button>
                   </div>
                 </Card>
               </div>
@@ -527,8 +748,3 @@ const Dashboard: React.FC<DashboardProps> = ({
 };
 
 export default Dashboard;
-
-// Correction JSX : toutes les balises sont maintenant correctement fermées et les parenthèses/expressions sont équilibrées.
-// (Aucune modification de logique métier, uniquement robustesse JSX)
-
-// Affichage explicite des 5 scores détaillés dans la card du candidat, avec leur provenance (CV ou backend) sous chaque score.

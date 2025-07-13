@@ -1,0 +1,35 @@
+Corrections pour les radars Dashboard.tsx:
+
+1. Dans radarDatasets (ligne ~97), remplacer:
+   values: {
+     'Compétences': ca.score !== undefined ? Number(Number(ca.score).toFixed(1)) : 0,
+     'Expérience': ca.experience && Array.isArray(ca.experience) ? Number(Math.min(ca.experience.length * 20, 100).toFixed(1)) : 0,
+     'Formation': ca.education && Array.isArray(ca.education) ? Number(Math.min(ca.education.length * 25, 100).toFixed(1)) : 0,
+     'Culture': c.predictive_score !== undefined && c.predictive_score !== null ? Number(Number(c.predictive_score).toFixed(1)) : 0,
+     'Entretien': cand.appreciations && cand.appreciations.length > 0
+       ? Number((cand.appreciations.reduce((acc: number, app: any) => acc + app.score, 0) / cand.appreciations.length * 25).toFixed(1))
+       : 0
+   }
+
+par:
+   values: {
+     'Compétences': cand.skills_score !== undefined && cand.skills_score !== null
+       ? Number((cand.skills_score * 100).toFixed(1))
+       : (ca.score !== undefined ? Number(Number(ca.score).toFixed(1)) : 0),
+     'Expérience': cand.experience_score !== undefined && cand.experience_score !== null
+       ? Number((cand.experience_score * 100).toFixed(1))
+       : (ca.experience && Array.isArray(ca.experience) ? Number(Math.min(ca.experience.length * 20, 100).toFixed(1)) : 0),
+     'Formation': cand.education_score !== undefined && cand.education_score !== null
+       ? Number((cand.education_score * 100).toFixed(1))
+       : (ca.education && Array.isArray(ca.education) ? Number(Math.min(ca.education.length * 25, 100).toFixed(1)) : 0),
+     'Culture': cand.culture_score !== undefined && cand.culture_score !== null
+       ? Number((cand.culture_score * 100).toFixed(1))
+       : (c.predictive_score !== undefined && c.predictive_score !== null ? Number(Number(c.predictive_score).toFixed(1)) : 0),
+     'Entretien': cand.interview_score !== undefined && cand.interview_score !== null
+       ? Number((cand.interview_score * 100).toFixed(1))
+       : (cand.appreciations && cand.appreciations.length > 0
+           ? Number((cand.appreciations.reduce((acc: number, app: any) => acc + app.score, 0) / cand.appreciations.length * 25).toFixed(1))
+           : 0)
+   }
+
+2. Dans le radar individuel (ligne ~421), remplacer getDetailedScores par la même logique.
