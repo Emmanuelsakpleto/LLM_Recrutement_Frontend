@@ -626,17 +626,20 @@ const Dashboard: React.FC<DashboardProps> = ({
                     </Button>
                   </div>
                   
-                  {/* Scores détaillés */}
-                  <div className="grid grid-cols-5 gap-4 mb-4">
-                    {getDetailedScores(selectedCandidate).map((score, index) => (
-                      <div key={index} className="text-center">
-                        <div className="text-2xl font-bold text-blue-600">
-                          {score.value}
-                        </div>
-                        <div className="text-xs text-gray-500">{score.label}</div>
-                        <div className="text-xs text-gray-400">({score.provenance})</div>
-                      </div>
-                    ))}
+                  {/* Score prédictif principal */}
+                  <div className="text-center mb-4">
+                    <div className="text-4xl font-bold text-blue-600">
+                      {(() => {
+                        const { displayScore, scoreLabel } = getDisplayScore(selectedCandidate);
+                        return displayScore;
+                      })()}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {(() => {
+                        const { scoreLabel } = getDisplayScore(selectedCandidate);
+                        return scoreLabel;
+                      })()}
+                    </div>
                   </div>
                 </Card>
 
